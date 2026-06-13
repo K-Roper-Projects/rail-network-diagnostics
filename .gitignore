@@ -1,0 +1,25 @@
+
+# Environment
+.env
+
+# SSH Keys
+*.ppk
+*.pem
+
+# Reports
+reports/*.csv
+
+# Python
+__pycache__/
+*.pyc
+
+# VS Code
+.vscode/
+
+# Inventory
+inventory/*.csv
+!inventory/example_inventory.csv
+
+# Archive Directory
+GPS_DIAG.archive/
+
