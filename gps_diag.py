@@ -10,25 +10,26 @@ SSH_PORT = 2510
 
 FLEET_PROFILES = {
     "gwr_165_166": {
+        "gps_device_mode": "fixed",
         "gps_device": "/dev/ttyS1",
         "vlan": "br0.105",
         "gprmc_file": "/var/local/gprmc",
         "broadcast_process": "broadcast_unicast_gps.py",
     },
     "gwr_800_802": {
-        "gps_device": "/dev/ttyUSB7",
+        "gps_device_mode": "auto",        
         "vlan": "br0.105",
         "gprmc_file": "/var/local/gprmc",
         "broadcast_process": "broadcast_unicast_gps.py",
     },
     "xc_220_221": {
-        "gps_device": "/dev/ttyUSB9",
+        "gps_device_mode": "auto",
         "vlan": "br0.105",
         "gprmc_file": "/var/local/gprmc",
         "broadcast_process": "broadcast_unicast_gps.py",
     },
     "xc_170": {
-        "gps_device": "/dev/ttyUSB9",
+        "gps_device_mode": "auto",
         "vlan": "br0.105",
         "gprmc_file": "/var/local/gprmc",
         "broadcast_process": "broadcast_unicast_gps.py",
@@ -120,6 +121,107 @@ def run_ssh_command(host, port, username, key_file, passphrase, command):
 
     finally:
         client.close()
+        
+def contains_nmea(text):
+    return any(
+        sentence in text
+        for sentence in [
+            "$GPRMC",
+            "$GPGGA",
+            "$GPGSV",
+            "$GNGSA",
+            "$GLGSV",
+        ]
+    )
+
+
+def detect_gps_device(host, username, key_file, passphrase, profile):
+
+    if profile.get("gps_device_mode") == "fixed":
+        fixed_device = profile["gps_device"]
+
+        nmea_output = run_ssh_command(
+            host,
+            SSH_PORT,
+            username,
+            key_file,
+            passphrase,
+            f"timeout 5 cat {fixed_device}",
+        )
+
+        return fixed_device, nmea_output
+
+    gps_pid_command = (
+        "ps aux | grep '/usr/local/bin/gps' | grep -v grep | awk '{print $2}'"
+    )
+
+    gps_pid = run_ssh_command(
+        host,
+        SSH_PORT,
+        username,
+        key_file,
+        passphrase,
+        gps_pid_command,
+    ).strip()
+
+    if gps_pid and not gps_pid.startswith("SSH_ERROR"):
+
+        fd_output = run_ssh_command(
+            host,
+            SSH_PORT,
+            username,
+            key_file,
+            passphrase,
+            f"ls -l /proc/{gps_pid}/fd 2>/dev/null",
+        )
+
+        match = re.search(r"->\s+(/dev/ttyUSB\d+)", fd_output)
+
+        if match:
+
+            detected_device = match.group(1)
+
+            nmea_output = run_ssh_command(
+                host,
+                SSH_PORT,
+                username,
+                key_file,
+                passphrase,
+                f"timeout 5 cat {detected_device}",
+            )
+
+            if contains_nmea(nmea_output):
+                return detected_device, nmea_output
+
+    usb_devices_output = run_ssh_command(
+        host,
+        SSH_PORT,
+        username,
+        key_file,
+        passphrase,
+        "ls -1 /dev/ttyUSB* 2>/dev/null",
+    )
+
+    for device in usb_devices_output.splitlines():
+
+        device = device.strip()
+
+        if not device.startswith("/dev/ttyUSB"):
+            continue
+
+        nmea_output = run_ssh_command(
+            host,
+            SSH_PORT,
+            username,
+            key_file,
+            passphrase,
+            f"timeout 3 cat {device}",
+        )
+
+        if contains_nmea(nmea_output):
+            return device, nmea_output
+
+    return "NOT_DETECTED", ""
 
 
 def print_report(train_id, gprmc_line, satellites=None):
@@ -163,10 +265,7 @@ def print_extended_report(train_id, results, satellites):
 
     gps_running = len(results["gps"].strip()) > 0
 
-    mqtt_running = (
-        "mosquitto" in results["mqtt"].lower()
-        or "mqtt" in results["mqtt"].lower()
-    )
+    mqtt_running = "mosquitto" in results["mqtt"].lower()
 
     broadcast_running = (
         "broadcast_unicast_gps.py"
@@ -198,7 +297,8 @@ def print_extended_report(train_id, results, satellites):
     print("\nSERVICE CHECKS")
     print("-" * 40)
 
-    print(f"TTYS1 Present        : {tty_ok}")
+    print(f"GPS Device Present   : {tty_ok}")
+    print(f"GPS Device Used      : {results.get('gps_device', 'Unknown')}")
     print(f"GPS Process Running  : {gps_running}")
     print(f"MQTT Running         : {mqtt_running}")
     print(f"Broadcast Running    : {broadcast_running}")
@@ -243,7 +343,7 @@ def save_csv_report(train_id, host, results, satellites, diagnosis, likely_cause
 
     tty_ok = "/dev/" in results["tty"]
     gps_running = len(results["gps"].strip()) > 0
-    mqtt_running = "mosquitto" in results["mqtt"].lower() or "mqtt" in results["mqtt"].lower()
+    mqtt_running = "mosquitto" in results["mqtt"].lower()
     broadcast_running = "broadcast_unicast_gps.py" in results["broadcast"]
     vlan_present = "br0.105" in results["vlan105"]
 
@@ -257,10 +357,11 @@ def save_csv_report(train_id, host, results, satellites, diagnosis, likely_cause
                 "timestamp",
                 "train_id",
                 "ip_address",
+                "gps_device",
                 "gprmc_status",
                 "utc_time",
                 "satellites_visible",
-                "ttyS1_present",
+                "gps_device_present",
                 "gps_running",
                 "mqtt_running",
                 "broadcast_running",
@@ -274,6 +375,7 @@ def save_csv_report(train_id, host, results, satellites, diagnosis, likely_cause
             datetime.now().isoformat(timespec="seconds"),
             train_id,
             host,
+            results.get("gps_device", "Unknown"),
             gprmc["status"],
             gprmc["utc_time"],
             satellites,
@@ -304,10 +406,11 @@ def save_timeout_csv_report(train_id, host, report_file=None):
                 "timestamp",
                 "train_id",
                 "ip_address",
+                "gps_device",
                 "gprmc_status",
                 "utc_time",
                 "satellites_visible",
-                "ttyS1_present",
+                "gps_device_present",
                 "gps_running",
                 "mqtt_running",
                 "broadcast_running",
@@ -370,7 +473,7 @@ def diagnose_live_train():
     checks = {
         "tty": "ls -l /dev/ttyS1",
         "gps": "ps aux | grep -i gps | grep -v grep",
-        "mqtt": "ps aux | grep -i mqtt | grep -v grep",
+        "mqtt": "ps aux | grep -i mosquitto | grep -v grep",
         "broadcast": "ps aux | grep broadcast | grep -v grep",
         "vlan105": "ip addr show br0.105",
         "gprmc": "cat /var/local/gprmc",
@@ -510,18 +613,24 @@ def diagnose_fleet():
 
             results = {}
 
+            gps_device, nmea_output = detect_gps_device(
+                host,
+                username,
+                key_file,
+                passphrase,
+                profile,
+            )
+
             checks = {
-                "tty": f"ls -l {profile['gps_device']}",
+                "tty": f"ls -l {gps_device}" if gps_device != "NOT_DETECTED" else "echo GPS_DEVICE_NOT_DETECTED",
                 "gps": "ps aux | grep -i gps | grep -v grep",
-                "mqtt": "ps aux | grep -i mqtt | grep -v grep",
+                "mqtt": "ps aux | grep -i mosquitto | grep -v grep",
                 "broadcast": f"ps aux | grep {profile['broadcast_process']} | grep -v grep",
                 "vlan105": f"ip addr show {profile['vlan']}",
                 "gprmc": f"cat {profile['gprmc_file']}",
-                "nmea": f"timeout 5 cat {profile['gps_device']}",
-}
-
+            }
+            
             for name, command in checks.items():
-
                 results[name] = run_ssh_command(
                     host,
                     SSH_PORT,
@@ -530,7 +639,10 @@ def diagnose_fleet():
                     passphrase,
                     command,
                 )
-
+            
+            results["nmea"] = nmea_output
+            results["gps_device"] = gps_device
+            
             if "CONNECTION_TIMEOUT" in results.values():
 
                 print("OFFLINE")
