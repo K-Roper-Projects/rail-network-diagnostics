@@ -461,45 +461,54 @@ def diagnose_from_files(gprmc_file, nmea_file=None):
 def diagnose_live_train():
     train_id = input("Train ID: ")
     host = input("CCU IP address: ")
-    port = int(input("SSH port [2510]: ") or "2510")
     username = input("Username [root]: ") or "root"
     key_file = input("OpenSSH private key path: ")
     passphrase = getpass("SSH key passphrase: ")
 
-    print("\nCollecting diagnostics...\n")
+    profile_name, profile = select_profile()
+
+    print(f"\nUsing profile: {profile_name}")
+    print("Collecting diagnostics...\n")
 
     results = {}
 
+    gps_device, nmea_output = detect_gps_device(
+        host,
+        username,
+        key_file,
+        passphrase,
+        profile,
+    )
+
     checks = {
-        "tty": "ls -l /dev/ttyS1",
+        "tty": f"ls -l {gps_device}" if gps_device != "NOT_DETECTED" else "echo GPS_DEVICE_NOT_DETECTED",
         "gps": "ps aux | grep -i gps | grep -v grep",
         "mqtt": "ps aux | grep -i mosquitto | grep -v grep",
-        "broadcast": "ps aux | grep broadcast | grep -v grep",
-        "vlan105": "ip addr show br0.105",
-        "gprmc": "cat /var/local/gprmc",
-        "nmea": "timeout 5 cat /dev/ttyS1",
+        "broadcast": f"ps aux | grep {profile['broadcast_process']} | grep -v grep",
+        "vlan105": f"ip addr show {profile['vlan']}",
+        "gprmc": f"cat {profile['gprmc_file']}",
     }
 
     for name, command in checks.items():
         results[name] = run_ssh_command(
             host,
-            port,
+            SSH_PORT,
             username,
             key_file,
             passphrase,
             command,
         )
-    
+
+    results["nmea"] = nmea_output
+    results["gps_device"] = gps_device
+
     if "CONNECTION_TIMEOUT" in results.values():
         print("\nNetwork connection timed out")
-        save_timeout_csv_report(
-            train_id,
-            host,
-        )
-        return    
-    
+        save_timeout_csv_report(train_id, host)
+        return
+
     results["host"] = host
-        
+
     satellites = parse_satellites(results["nmea"])
 
     print_extended_report(
@@ -554,6 +563,16 @@ def select_inventory_file():
     choice = int(input("\nSelect inventory file: "))
     return inventory_files[choice - 1]
 
+def select_profile():
+    print("\nAvailable hardware profiles:")
+    for index, profile_name in enumerate(FLEET_PROFILES.keys(), start=1):
+        print(f"{index}. {profile_name}")
+
+    choice = int(input("\nSelect hardware profile: "))
+    profile_name = list(FLEET_PROFILES.keys())[choice - 1]
+
+    return profile_name, FLEET_PROFILES[profile_name]
+
 def load_train_inventory(inventory_file):
     trains = []
 
@@ -599,6 +618,9 @@ def diagnose_fleet():
     failed_count = 0
     offline_count = 0
     error_count = 0
+    failed_units = []
+    offline_units = []
+    error_units = []
 
     print(f"\nLoaded {len(trains)} trains.\n")
 
@@ -648,6 +670,7 @@ def diagnose_fleet():
                 print("OFFLINE")
                 
                 offline_count += 1
+                offline_units.append(train_id)
 
                 save_timeout_csv_report(
                     train_id,
@@ -670,6 +693,7 @@ def diagnose_fleet():
                 healthy_count += 1
             else:
                 failed_count += 1
+                failed_units.append(train_id)
 
             print_extended_report(
                 train_id,
@@ -680,6 +704,7 @@ def diagnose_fleet():
         except Exception as e:
             
             error_count += 1
+            error_units.append(train_id)
             print(f"ERROR: {e}")
     
     print("\n" + "=" * 60)
@@ -690,6 +715,9 @@ def diagnose_fleet():
     print(f"Failed               : {failed_count}")
     print(f"Offline              : {offline_count}")
     print(f"Errors               : {error_count}")
+    print(f"Failed Units         : {', '.join(failed_units) if failed_units else 'None'}")
+    print(f"Offline Units        : {', '.join(offline_units) if offline_units else 'None'}")
+    print(f"Error Units          : {', '.join(error_units) if error_units else 'None'}")
     print("=" * 60)
 
 if __name__ == "__main__":
