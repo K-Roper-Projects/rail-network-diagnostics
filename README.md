@@ -18,7 +18,7 @@ The project was created to reduce manual fault investigation, improve first-line
 
 ### Future Objectives
 
-* Automated WAN and modem diagnostics.
+* WAN fault classification and automated root cause analysis.
 * Network switch and access point health monitoring.
 * Automated fault trending and reporting.
 * Scheduled fleet-wide health scans.
@@ -37,6 +37,18 @@ The project was created to reduce manual fault investigation, improve first-line
 | XC 220/221  | 4600CCU           | Automatic GPS device discovery |
 
 ---
+
+## Supported Modems
+
+### Sierra Wireless
+
+* MC7455
+* 7710
+* 8801
+
+### Huawei
+
+* Huawei Mobile Modems
 
 ## Key Features
 
@@ -64,6 +76,20 @@ The tool can automatically:
 * Export results to fleet-specific CSV reports
 * Record offline or unreachable units
 * Generate fleet health summaries
+
+### WAN & Modem Diagnostics
+
+The tool can remotely validate:
+
+* Modem hardware discovery
+* Sierra Wireless modem detection
+* Huawei modem detection
+* Modem firmware collection
+* Serving cell identification
+* WAN interface detection
+* WAN availability monitoring
+* WAN latency (RTT) reporting
+* WAN diagnostic CSV export
 
 ### Automatic GPS Device Discovery
 
@@ -162,6 +188,9 @@ rail-network-diagnostics
 * VLAN validation
 * Service monitoring
 * Linux administration
+* Cellular WAN diagnostics
+* Modem firmware validation
+* Mobile network troubleshooting
 
 ### Software Development
 
@@ -177,6 +206,8 @@ rail-network-diagnostics
 * Automated health checking
 * Inventory-driven scanning
 * Dynamic hardware detection
+* Dynamic modem discovery
+* WAN health reporting
 
 ### DevOps & Version Control
 
@@ -186,6 +217,27 @@ rail-network-diagnostics
 * Repository management
 
 ---
+
+## Current Capability
+
+### GPS Diagnostics
+
+✓ Fleet GPS scanning  
+✓ Automatic GPS device discovery  
+✓ GPS process validation  
+✓ MQTT validation  
+✓ GPS broadcast validation  
+✓ CSV reporting  
+
+### WAN Diagnostics
+
+✓ Sierra Wireless modem detection  
+✓ Huawei modem detection  
+✓ Firmware collection  
+✓ Serving cell collection  
+✓ WAN availability monitoring  
+✓ WAN latency reporting  
+✓ CSV reporting
 
 ## Lessons Learned
 
@@ -212,8 +264,9 @@ The project also reinforced:
 
 ### WAN Diagnostics
 
-* Modem status monitoring.
-* WAN service validation.
+* Fleet WAN scanning.
+* WAN fault classification.
+* Modem health trending.
 * DHCP and carrier attach diagnostics.
 * Sierra Wireless fault detection.
 
