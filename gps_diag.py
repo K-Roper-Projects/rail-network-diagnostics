@@ -89,6 +89,33 @@ def parse_satellites(nmea_text):
 
     return int(match.group(1))
 
+def parse_wan_loadbalance(loadbalance_text):
+
+    data = {}
+
+    for line in loadbalance_text.splitlines():
+
+        if "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+
+        data[key.strip()] = value.strip()
+
+    return {
+        "interface": data.get("interface", ""),
+        "ca": data.get("ca", "0"),
+        "rtt": data.get("rtt", ""),
+        "bandwidth": data.get("bw", ""),
+        "rank": data.get("rank", ""),
+    }
+
+def classify_wan_status(wan_data):
+
+    if wan_data["ca"] == "1":
+        return "AVAILABLE"
+
+    return "UNAVAILABLE"
 
 def run_ssh_command(host, port, username, key_file, passphrase, command):
     client = paramiko.SSHClient()
@@ -223,6 +250,42 @@ def detect_gps_device(host, username, key_file, passphrase, profile):
 
     return "NOT_DETECTED", ""
 
+def collect_wan_diagnostics(
+    host,
+    username,
+    key_file,
+    passphrase,
+):
+    results = {}
+
+    commands = {
+        "ls_unified": "/usr/local/bin/ls_unified",
+
+        "wan1_modem_details": "cat /var/local/unified/01/modem-details 2>/dev/null",
+        "wan1_firmware": "cat /var/local/unified/01/modem-firmware 2>/dev/null",
+        "wan1_cell_id": "cat /var/local/unified/01/cell-id 2>/dev/null",
+        "wan1_loadbalance": "cat /var/local/loadbalance/wans/wan1 2>/dev/null",
+
+        "wan2_modem_details": "cat /var/local/unified/02/modem-details 2>/dev/null",
+        "wan2_firmware": "cat /var/local/unified/02/modem-firmware 2>/dev/null",
+        "wan2_cell_id": "cat /var/local/unified/02/cell-id 2>/dev/null",
+        "wan2_loadbalance": "cat /var/local/loadbalance/wans/wan2 2>/dev/null",
+
+        "wan3_loadbalance": "cat /var/local/loadbalance/wans/wan3 2>/dev/null",
+    }
+
+    for name, command in commands.items():
+
+        results[name] = run_ssh_command(
+            host,
+            SSH_PORT,
+            username,
+            key_file,
+            passphrase,
+            command,
+        )
+
+    return results
 
 def print_report(train_id, gprmc_line, satellites=None):
     gprmc = parse_gprmc(gprmc_line)
@@ -332,7 +395,134 @@ def print_extended_report(train_id, results, satellites):
         diagnosis,
         likely_cause,
     )
-    
+    print("\nSUMMARY")
+    print("-" * 40)
+    print(f"Train ID             : {train_id}")
+    print(f"GPS Device           : {results.get('gps_device', 'Unknown')}")
+    print(f"Diagnosis            : {diagnosis}")
+
+def print_wan_report(train_id, results):
+
+    print("\n" + "=" * 80)
+    print(f"WAN Diagnostic Report - {train_id}")
+    print("=" * 80)
+
+    print("\nMODEM HARDWARE DISCOVERY")
+    print("-" * 40)
+    print(results.get("ls_unified", "No ls_unified output"))
+
+    wan1 = parse_wan_loadbalance(
+    results["wan1_loadbalance"]
+)
+
+    wan1_status = classify_wan_status(
+    wan1
+    )
+
+    print("\nWAN 1")
+    print("-" * 40)
+
+    print(f"Status        : {wan1_status}")
+    print(f"Interface     : {wan1['interface']}")
+    print(f"Latency (RTT) : {wan1['rtt']} ms")
+    print(f"Serving Cell  : {results['wan1_cell_id']}")
+
+    print(f"Modem         : {results['wan1_modem_details']}")
+    print(f"Firmware      : {results['wan1_firmware']}")
+
+    wan2 = parse_wan_loadbalance(
+    results["wan2_loadbalance"]
+    )
+
+    wan2_status = classify_wan_status(
+    wan2
+    )
+
+    print("\nWAN 2")
+    print("-" * 40)
+
+    print(f"Status        : {wan2_status}")
+    print(f"Interface     : {wan2['interface']}")
+    print(f"Latency (RTT) : {wan2['rtt']} ms")
+    print(f"Serving Cell  : {results['wan2_cell_id']}")
+
+    print(f"Modem         : {results['wan2_modem_details']}")
+    print(f"Firmware      : {results['wan2_firmware']}")
+
+    wan3 = parse_wan_loadbalance(
+    results["wan3_loadbalance"]
+    )
+
+    wan3_status = classify_wan_status(
+    wan3
+    )
+
+    print("\nWAN 3")
+    print("-" * 40)
+
+    print(f"Status        : {wan3_status}")
+    print(f"Interface     : {wan3['interface']}")
+
+    print("\n" + "=" * 80)   
+
+def save_wan_csv_report(train_id, host, results):
+    reports_dir = Path("reports")
+    reports_dir.mkdir(exist_ok=True)
+
+    csv_file = reports_dir / "wan_diagnostics.csv"
+
+    wan1 = parse_wan_loadbalance(results["wan1_loadbalance"])
+    wan2 = parse_wan_loadbalance(results["wan2_loadbalance"])
+    wan3 = parse_wan_loadbalance(results["wan3_loadbalance"])
+
+    file_exists = csv_file.exists()
+
+    with open(csv_file, mode="a", newline="") as file:
+        writer = csv.writer(file)
+
+        if not file_exists:
+            writer.writerow([
+                "timestamp",
+                "train_id",
+                "ip_address",
+                "wan1_status",
+                "wan1_interface",
+                "wan1_latency",
+                "wan1_serving_cell",
+                "wan1_modem",
+                "wan1_firmware",
+                "wan2_status",
+                "wan2_interface",
+                "wan2_latency",
+                "wan2_serving_cell",
+                "wan2_modem",
+                "wan2_firmware",
+                "wan3_status",
+                "wan3_interface",
+            ])
+
+        writer.writerow([
+            datetime.now().isoformat(timespec="seconds"),
+            train_id,
+            host,
+            classify_wan_status(wan1),
+            wan1["interface"],
+            wan1["rtt"],
+            results.get("wan1_cell_id", ""),
+            results.get("wan1_modem_details", ""),
+            results.get("wan1_firmware", ""),
+            classify_wan_status(wan2),
+            wan2["interface"],
+            wan2["rtt"],
+            results.get("wan2_cell_id", ""),
+            results.get("wan2_modem_details", ""),
+            results.get("wan2_firmware", ""),
+            classify_wan_status(wan3),
+            wan3["interface"],
+        ])
+
+    print(f"\nWAN CSV report updated: {csv_file}")
+
 def save_csv_report(train_id, host, results, satellites, diagnosis, likely_cause):
     reports_dir = Path("reports")
     reports_dir.mkdir(exist_ok=True)
@@ -517,6 +707,37 @@ def diagnose_live_train():
         satellites,
     )
 
+def diagnose_wan_live():
+
+    train_id = input("Train ID: ")
+
+    host = input("CCU IP address: ")
+
+    username = input("Username [root]: ") or "root"
+
+    key_file = input("OpenSSH private key path: ")
+
+    passphrase = getpass("SSH key passphrase: ")
+
+    print("\nCollecting WAN diagnostics...\n")
+
+    results = collect_wan_diagnostics(
+        host,
+        username,
+        key_file,
+        passphrase,
+    )
+
+    print_wan_report(
+        train_id,
+        results,
+    )
+
+    save_wan_csv_report(
+    train_id,
+    host,
+    results,
+    )
 
 def main():
     print("GPS Diagnostic Tool")
@@ -526,6 +747,7 @@ def main():
     print("3. Enter custom file path")
     print("4. Live SSH GPS check")
     print("5. Fleet Scan")
+    print("6. WAN / Modem Diagnostics")
 
     choice = input("\nSelect option: ")
 
@@ -545,6 +767,9 @@ def main():
         
     elif choice == "5":
         diagnose_fleet()
+
+    elif choice == "6":
+        diagnose_wan_live()
 
     else:
         print("Invalid option")
