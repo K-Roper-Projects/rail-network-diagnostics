@@ -4,6 +4,16 @@ A Python-based network automation and diagnostics platform designed to remotely 
 
 The project was created to reduce manual fault investigation, improve first-line diagnostics, and minimise unnecessary depot visits by providing automated health checks against onboard systems.
 
+Current Version Highlights
+
+✓ Multi-fleet GPS diagnostics
+✓ Automatic GPS device discovery
+✓ Fleet-wide GPS scanning
+✓ WAN and modem diagnostics
+✓ Automated WAN fault classification
+✓ Engineering action recommendations
+✓ CSV reporting and evidence collection
+
 ---
 
 ## Project Objectives
@@ -89,6 +99,12 @@ The tool can remotely validate:
 * WAN interface detection
 * WAN availability monitoring
 * WAN latency (RTT) reporting
+* Cellular technology and band information
+* Registration status validation
+* Attach state monitoring
+* Carrier Aggregation (CA) status
+* Automated WAN fault classification
+* Recommended engineering actions
 * WAN diagnostic CSV export
 
 ### Automatic GPS Device Discovery
@@ -231,19 +247,42 @@ rail-network-diagnostics
 
 ### WAN Diagnostics
 
-✓ Sierra Wireless modem detection  
-✓ Huawei modem detection  
-✓ Firmware collection  
-✓ Serving cell collection  
-✓ WAN availability monitoring  
-✓ WAN latency reporting  
+✓ Sierra Wireless modem detection
+✓ Huawei modem detection
+✓ Firmware collection
+✓ Serving cell collection
+✓ WAN availability monitoring
+✓ WAN latency reporting
+✓ Modem state monitoring
+✓ Registration status monitoring
+✓ Attach state monitoring
+✓ Technology and band reporting
+✓ Automated fault diagnosis
+✓ Recommended engineering actions
 ✓ CSV reporting
+
+## WAN Fault Classification
+
+The WAN diagnostics engine performs automated analysis of modem runtime state information collected from onboard CCUs.
+
+Current fault classifications include:
+
+* WAN Operational
+* Modem Not Detected
+* Network Registration Failure
+* DHCP Negotiation Failure
+* WAN Attach / Interface Bring-Up Failure
+* WAN Unavailable - Investigation Required
+
+Each diagnosis includes recommended next steps to assist first-line support teams with fault triage and escalation decisions.
 
 ## Lessons Learned
 
 This project highlighted the importance of validating assumptions against real-world systems.
 
 Initially, GPS serial devices were assumed to be fixed across fleets. Investigation of multiple 4600CCU platforms demonstrated that USB serial devices are dynamically assigned during boot, requiring automatic device discovery rather than hardcoded paths.
+
+Investigation of the onboard WAN subsystem revealed that valuable modem health information is exposed through the unified runtime database located under /var/local/unified. By analysing modem state, registration status, attach state, interface creation and carrier aggregation status, the project evolved from simple status reporting into evidence-based fault classification capable of identifying likely modem failures and recommended engineering actions.
 
 The project also reinforced:
 
@@ -265,10 +304,13 @@ The project also reinforced:
 ### WAN Diagnostics
 
 * Fleet WAN scanning.
-* WAN fault classification.
-* Modem health trending.
+* Fleet-wide modem health reporting.
+* Historical fault trending.
+* Additional modem fault signatures.
+* Automatic FSE visit recommendations.
+* Automated ticket generation.
+* SIM and carrier diagnostics.
 * DHCP and carrier attach diagnostics.
-* Sierra Wireless fault detection.
 
 ### Network Monitoring
 
