@@ -629,7 +629,116 @@ def print_report(train_id, gprmc_line, satellites=None):
     print(f"Diagnosis: {diagnosis}")
     print(f"Likely Cause: {likely_cause}")
     print("=" * 70)
-    
+
+def generate_wan_html_report(scan_results, output_file):
+    generated_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Fleet WAN Diagnostic Report</title>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f4f6f8;
+        }}
+        h1 {{
+            color: #2c3e50;
+        }}
+        table {{
+            border-collapse: collapse;
+            width: 100%;
+            background-color: white;
+        }}
+        th, td {{
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }}
+        th {{
+            background-color: #2c3e50;
+            color: white;
+        }}
+        .healthy {{
+            color: green;
+            font-weight: bold;
+        }}
+        .fault {{
+            color: red;
+            font-weight: bold;
+        }}
+        .offline {{
+            color: gray;
+            font-weight: bold;
+        }}
+    </style>
+</head>
+<body>
+
+<h1>Fleet WAN Diagnostic Report</h1>
+<p><strong>Generated:</strong> {generated_time}</p>
+
+<table>
+<tr>
+    <th>Train ID</th>
+    <th>IP Address</th>
+    <th>WAN1 Status</th>
+    <th>WAN1 Diagnosis</th>
+    <th>WAN2 Status</th>
+    <th>WAN2 Diagnosis</th>
+    <th>WAN3 Status</th>
+    <th>WAN3 Diagnosis</th>
+    <th>Overall Status</th>
+</tr>
+"""
+
+    for row in scan_results:
+        overall_status = row.get("overall_status", "UNKNOWN")
+        status_class = get_status_class(overall_status)
+
+        html += f"""
+<tr>
+    <td>{row.get("train_id", "")}</td>
+    <td>{row.get("ip_address", "")}</td>
+    <td>{row.get("wan1_status", "N/A")}</td>
+    <td>{row.get("wan1_diagnosis", "N/A")}</td>
+    <td>{row.get("wan2_status", "N/A")}</td>
+    <td>{row.get("wan2_diagnosis", "N/A")}</td>
+    <td>{row.get("wan3_status", "N/A")}</td>
+    <td>{row.get("wan3_diagnosis", "N/A")}</td>
+    <td class="{status_class}">{overall_status}</td>
+</tr>
+"""
+
+    html += """
+</table>
+</body>
+</html>
+"""
+
+    output_path = Path(output_file)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(output_path, "w", encoding="utf-8") as file:
+        file.write(html)
+
+def get_status_class(status):
+    status = str(status).upper()
+
+    if status in ["HEALTHY", "ONLINE", "AVAILABLE"]:
+        return "healthy"
+    elif status in ["FAULT", "FAULTY", "FAILED", "ERROR"]:
+        return "fault"
+    elif status in ["WARNING", "DEGRADED", "ATTENTION"]:
+        return "warning"
+    elif status in ["OFFLINE", "TIMEOUT", "UNREACHABLE"]:
+        return "offline"
+    else:
+        return ""
+
 def print_extended_report(train_id, results, satellites):
 
     gprmc = parse_gprmc(results["gprmc"])
@@ -711,7 +820,7 @@ def print_extended_report(train_id, results, satellites):
     print(f"GPS Device           : {results.get('gps_device', 'Unknown')}")
     print(f"Diagnosis            : {diagnosis}")
 
-def print_wan_report(train_id, results):
+def print_wan_report(train_id, results, train_profile):
 
     print("\n" + "=" * 80)
     print(f"WAN Diagnostic Report - {train_id}")
@@ -725,12 +834,15 @@ def print_wan_report(train_id, results):
     results["wan1_loadbalance"]
 )
 
-    wan1_status = classify_wan_status(wan1)
-    wan1_diagnosis, wan1_action = get_wan_recommendation(
-    1,
-    wan1_status,
-    results,
+    wan1_result = get_wan_result(
+        1,
+        results,
+        train_profile,
     )
+
+    wan1_status = wan1_result["status"]
+    wan1_diagnosis = wan1_result["diagnosis"]
+    wan1_action = wan1_result["next_steps"]
     
     print("\nWAN 1")
     print("-" * 40)
@@ -759,12 +871,15 @@ def print_wan_report(train_id, results):
     results["wan2_loadbalance"]
     )
 
-    wan2_status = classify_wan_status(wan2)
-    wan2_diagnosis, wan2_action = get_wan_recommendation(
-    2,
-    wan2_status,
-    results,
+    wan2_result = get_wan_result(
+        2,
+        results,
+        train_profile,
     )
+
+    wan2_status = wan2_result["status"]
+    wan2_diagnosis = wan2_result["diagnosis"]
+    wan2_action = wan2_result["next_steps"]
 
     print("\nWAN 2")
     print("-" * 40)
@@ -793,12 +908,15 @@ def print_wan_report(train_id, results):
     results["wan3_loadbalance"]
     )
 
-    wan3_status = classify_wan_status(wan3)
-    wan3_diagnosis, wan3_action = get_wan_recommendation(
-    3,
-    wan3_status,
-    results,
+    wan3_result = get_wan_result(
+        3,
+        results,
+        train_profile,
     )
+
+    wan3_status = wan3_result["status"]
+    wan3_diagnosis = wan3_result["diagnosis"]
+    wan3_action = wan3_result["next_steps"]
 
     print("\nWAN 3")
     print("-" * 40)
@@ -1226,7 +1344,10 @@ def diagnose_wan_live():
     key_file = SSH_KEY_PATH
     passphrase = getpass("SSH key passphrase: ")
 
-    print("\nCollecting WAN diagnostics...\n")
+    profile_name, profile = select_profile()
+
+    print(f"\nUsing WAN profile: {profile_name}")
+    print("Collecting WAN diagnostics...\n")
 
     results = collect_wan_diagnostics(
         host,
@@ -1236,8 +1357,9 @@ def diagnose_wan_live():
     )
 
     print_wan_report(
-        train_id,
-        results,
+    train_id,
+    results,
+    profile,
     )
 
     save_wan_csv_report(
@@ -1366,6 +1488,7 @@ def diagnose_wan_fleet():
     offline_units = []
     error_units = []
     fault_counter = {}
+    html_results = []
 
     print(f"\nLoaded {len(trains)} trains.")
     print(f"Using WAN profile: {profile_name}")
@@ -1428,11 +1551,26 @@ def diagnose_wan_fleet():
             total_checked += 1
             train_fault = False
 
+            train_html_row = {
+                "train_id": train_id,
+                "ip_address": host,
+                "overall_status": "HEALTHY",
+            }
+
             for wan_number in [1, 2, 3]:
+
                 wan_result = get_wan_result(
                     wan_number,
                     results,
                     train_profile,
+                )
+
+                train_html_row[f"wan{wan_number}_status"] = (
+                    wan_result["status"]
+                )
+
+                train_html_row[f"wan{wan_number}_diagnosis"] = (
+                    wan_result["diagnosis"]
                 )
 
                 print(
@@ -1448,22 +1586,30 @@ def diagnose_wan_fleet():
                     train_fault = True
 
                     actionable_faults.append(
-                        f"{train_id} WAN{wan_number}: {wan_result['diagnosis']}"
+                        f"{train_id} WAN{wan_number}: "
+                        f"{wan_result['diagnosis']}"
                     )
 
                     fault_counter[wan_result["diagnosis"]] = (
-                        fault_counter.get(wan_result["diagnosis"], 0) + 1
+                        fault_counter.get(
+                            wan_result["diagnosis"],
+                            0,
+                        ) + 1
                     )
 
             if train_fault:
+                train_html_row["overall_status"] = "FAULT"
                 faulty_count += 1
             else:
+                train_html_row["overall_status"] = "HEALTHY"
                 healthy_count += 1
+
+            html_results.append(train_html_row)
 
         except Exception as e:
             print(f"ERROR: {e}")
             error_units.append(train_id)
-
+                
     print("\n" + "=" * 70)
     print("Fleet WAN Scan Complete")
     print("=" * 70)
@@ -1495,6 +1641,10 @@ def diagnose_wan_fleet():
             print(f"- {fault}")
     else:
         print("None")
+
+    html_report_file = Path(str(report_file).replace(".csv", ".html"))
+    generate_wan_html_report(html_results, html_report_file)
+    print(f"WAN HTML report saved to: {html_report_file}")
 
     print("=" * 70)
     print(f"WAN fleet report saved to: {report_file}")
