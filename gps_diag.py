@@ -134,61 +134,50 @@ def get_wan_recommendation(wan_number, status, results):
     device = results.get(f"{prefix}_dev", "").strip()
     ca_state = results.get(f"{prefix}_ca", "").strip()
 
+    wan_data = parse_wan_loadbalance(
+        results.get(f"{prefix}_loadbalance", "")
+    )
+
+    loadbalance_interface = wan_data.get("interface", "")
+    loadbalance_ca = wan_data.get("ca", "0")
+    loadbalance_rtt = wan_data.get("rtt", "")
+
+    try:
+        latency_ms = int(float(loadbalance_rtt or 0))
+    except ValueError:
+        latency_ms = 0
+
+    # 60000ms is a failure value, even if interface/CA data briefly looks valid.
+    if latency_ms >= 60000:
+        return (
+            "WAN attached but failing latency check",
+            "Reset WAN process and monitor. If high latency returns, raise FSE ticket for modem investigation or replacement."
+        )
+
+    # Trust operational loadbalance evidence before missing modem metadata.
+    if (
+        (interface or loadbalance_interface)
+        and (str(ca_state) == "1" or str(loadbalance_ca) == "1")
+    ):
+        return (
+            "WAN operational",
+            "No action required."
+        )
+
     if status == "AVAILABLE":
         return (
             "WAN operational",
             "No action required."
         )
-    rtt = results.get(f"{prefix}_loadbalance", "")
 
-    wan_data = parse_wan_loadbalance(
-    results.get(f"{prefix}_loadbalance", "")
-    )
-
-    try:
-        latency_ms = int(float(wan_data.get("rtt", "0")))
-    except ValueError:
-        latency_ms = 0
-
-    if state in ["SHOW-LTE", "SHOWTIME"] and latency_ms >= 60000:
-        return (
-            "WAN attached but failing latency check",
-            "Reset WAN process and monitor. If high latency returns, raise FSE ticket for modem investigation or replacement."
-        )
-    
     if (
-        state == "INIT"
-        and "Attempting network attach" in attach_state
-        and "Registered" in registration
-        and ca_state == "0"
+        "PDP" in state.upper()
+        or "PDP" in attach_state.upper()
+        or "PDP" in registration.upper()
     ):
         return (
-            "WAN INIT - attach/interface bring-up failure",
-            "Reset WAN process and monitor. If the fault reoccurs after WAN process restart or train reboot, raise FSE ticket for modem replacement."
-        )
-
-    if "NO PLMN" in state or "NO PLMN" in registration:
-        return (
-            "Network registration failure",
-            "Reset WAN process and monitor. If the fault reoccurs after WAN process restart or train reboot, raise FSE ticket for modem replacement."
-        )
-
-    if not modem_details or "0000:0000" in modem_details:
-        return (
-            "Modem not detected",
-            "Reboot CCU and recheck modem detection. If still not detected, raise FSE ticket for modem replacement."
-        )
-
-    if state in ["WAIT#DHCP", "STATE_WAIT_DHCP"]:
-        return (
-            "WAN DHCP negotiation failure",
-            "Reset WAN process and monitor. If DHCP failure reoccurs, investigate modem DHCP/session handling and consider modem replacement."
-        )
-
-    if state in ["Power On", "POWER ON"]:
-        return (
-            "Modem stuck during power-on initialisation",
-            "Reset WAN process or reboot CCU. If the state returns, raise FSE ticket for modem investigation or replacement."
+            "PDP context/session error",
+            "Reset WAN process and monitor. If PDP error reoccurs, investigate SIM/APN/session setup and escalate if persistent."
         )
 
     if (
@@ -201,22 +190,54 @@ def get_wan_recommendation(wan_number, status, results):
             "Reset WAN process and monitor. If NO PLMN reoccurs after WAN process restart or train reboot, raise FSE ticket for modem or SIM investigation."
         )
 
-    if interface == "" and device == "" and ca_state == "0":
+    if (
+        "POWER ON" in state.upper()
+        or "POWER ON" in attach_state.upper()
+    ):
+        return (
+            "Modem stuck during power-on initialisation",
+            "Reset WAN process or reboot CCU. If the state returns, raise FSE ticket for modem investigation or replacement."
+        )
+
+    if (
+        state == "INIT"
+        and "ATTEMPTING NETWORK ATTACH" in attach_state.upper()
+        and "REGISTERED" in registration.upper()
+    ):
+        return (
+            "WAN INIT - attach/interface bring-up failure",
+            "Reset WAN process and monitor. If the fault reoccurs after WAN process restart or train reboot, raise FSE ticket for modem replacement."
+        )
+
+    if state in ["WAIT#DHCP", "STATE_WAIT_DHCP"]:
+        return (
+            "WAN DHCP negotiation failure",
+            "Reset WAN process and monitor. If DHCP failure reoccurs, investigate modem DHCP/session handling and consider modem replacement."
+        )
+
+    if state in ["SHOW-LTE", "SHOWTIME"] and attach_state == "-------":
+        return (
+            "LTE session establishment incomplete",
+            "Reset WAN process and monitor. If fault persists, investigate modem registration and data session establishment."
+        )
+
+    if (
+        not modem_details
+        and not interface
+        and not device
+        and not loadbalance_interface
+        and str(ca_state) != "1"
+        and str(loadbalance_ca) != "1"
+    ):
+        return (
+            "Modem not detected",
+            "Reboot CCU and recheck modem detection. If still not detected, raise FSE ticket for modem replacement."
+        )
+
+    if interface == "" and device == "" and loadbalance_interface == "":
         return (
             "WAN unavailable - no active interface",
             "Reset WAN process and monitor. If interface remains unavailable, raise to 2nd Line or FSE for modem investigation."
-        )
-    
-    if state in ["SHOW-LTE", "SHOWTIME"] and attach_state == "Power On":
-        return (
-            "WAN session not fully established after reset",
-            "Monitor for recovery. If the WAN remains in Power On state or reoccurs after WAN process reset, escalate for modem investigation."
-        )
-
-    if state == "SHOW-LTE" and attach_state == "-------":
-        return (
-            "LTE registration incomplete",
-            "Reset WAN process and monitor. If fault persists, investigate modem registration and data session establishment."
         )
 
     return (
@@ -246,6 +267,9 @@ def get_wan_result(wan_number, results, train_profile):
         status,
         results,
     )
+
+    if diagnosis == "WAN operational":
+        status = "AVAILABLE"
 
     return {
         "status": status,

@@ -68,3 +68,30 @@ XC 170
 - GWR 165/166 utilise WAN1 and WAN3.
 - GWR 800/802 utilise WAN1 and WAN2.
 - XC fleets utilise WAN1, WAN2 and WAN3.
+
+## XC220/221 WAN3 Discovery
+
+Observed on unit 220012.
+
+WAN3 reported as "Modem not detected" by diagnostics tool.
+
+Investigation showed:
+
+state = SHOW-LTE
+ifname = swa4
+dev = swa4
+ca = 1
+rtt = 44
+
+However the following files were absent:
+
+modem-details
+modem-firmware
+attach-state
+registration-status
+
+Conclusion:
+
+Missing modem-details does not necessarily indicate a failed modem.
+
+Operational indicators such as interface presence and CA state should take precedence over modem-details when determining WAN availability.
