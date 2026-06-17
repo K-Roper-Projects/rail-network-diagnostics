@@ -1335,10 +1335,13 @@ def diagnose_wan_fleet():
     trains = load_train_inventory(inventory_file)
 
     total_checked = 0
+    healthy_count = 0
+    faulty_count = 0
     offline_count = 0
     actionable_faults = []
     offline_units = []
     error_units = []
+    fault_counter = {}
 
     print(f"\nLoaded {len(trains)} trains.")
     print(f"Using WAN profile: {profile_name}")
@@ -1361,7 +1364,6 @@ def diagnose_wan_fleet():
         print(f"\nChecking WAN diagnostics for {train_id} ({host}) - {fleet_name}")
 
         try:
-            
             results = collect_wan_diagnostics(
                 host,
                 username,
@@ -1400,6 +1402,7 @@ def diagnose_wan_fleet():
             )
 
             total_checked += 1
+            train_fault = False
 
             for wan_number in [1, 2, 3]:
                 wan_result = get_wan_result(
@@ -1418,9 +1421,20 @@ def diagnose_wan_fleet():
                     wan_result["status"] != "AVAILABLE"
                     and wan_result["diagnosis"] != "WAN disabled by fleet design"
                 ):
+                    train_fault = True
+
                     actionable_faults.append(
                         f"{train_id} WAN{wan_number}: {wan_result['diagnosis']}"
                     )
+
+                    fault_counter[wan_result["diagnosis"]] = (
+                        fault_counter.get(wan_result["diagnosis"], 0) + 1
+                    )
+
+            if train_fault:
+                faulty_count += 1
+            else:
+                healthy_count += 1
 
         except Exception as e:
             print(f"ERROR: {e}")
@@ -1432,11 +1446,22 @@ def diagnose_wan_fleet():
     print(f"Inventory            : {inventory_file.name}")
     print(f"Total Trains Loaded  : {len(trains)}")
     print(f"Successfully Checked : {total_checked}")
+    print(f"Healthy Trains       : {healthy_count}")
+    print(f"Faulty Trains        : {faulty_count}")
     print(f"Offline              : {offline_count}")
     print(f"Errors               : {len(error_units)}")
     print(f"Actionable Faults    : {len(actionable_faults)}")
     print(f"Offline Units        : {', '.join(offline_units) if offline_units else 'None'}")
     print(f"Error Units          : {', '.join(error_units) if error_units else 'None'}")
+
+    print("\nFault Breakdown")
+    print("-" * 70)
+
+    if fault_counter:
+        for fault, count in fault_counter.items():
+            print(f"{fault}: {count}")
+    else:
+        print("None")
 
     print("\nActionable Fault Summary")
     print("-" * 70)
