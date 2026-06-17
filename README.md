@@ -4,6 +4,8 @@ A Python-based network automation and diagnostics platform designed to remotely 
 
 The project was created to reduce manual fault investigation, improve first-line diagnostics, and minimise unnecessary depot visits by providing automated health checks against onboard systems.
 
+The platform currently supports automated GPS and WAN diagnostics across multiple fleets, generating fleet-wide CSV and HTML reports with engineering recommendations based on detected fault signatures.
+
 Current Version Highlights
 
 ✓ Multi-fleet GPS diagnostics
@@ -15,6 +17,7 @@ Current Version Highlights
 ✓ Engineering action recommendations
 ✓ Mixed-fleet hardware profile support
 ✓ CSV reporting and evidence collection
+✓ HTML fleet reporting
 ✓ Real-world modem fault signature analysis
 
 ---
@@ -31,7 +34,8 @@ Current Version Highlights
 
 ### Future Objectives
 
-* WAN fault classification and automated root cause analysis.
+* Combined GPS and WAN fleet health reporting.
+* Historical fault trending and analytics.
 * Network switch and access point health monitoring.
 * Automated fault trending and reporting.
 * Scheduled fleet-wide health scans.
@@ -123,6 +127,7 @@ Features include:
 * WAN fault classification
 * Engineering action recommendations
 * Fleet-wide CSV reporting
+* Fleet-wide HTML reporting
 
 Supported WAN configurations:
 
@@ -288,6 +293,7 @@ rail-network-diagnostics
 ✓ Automated fault diagnosis
 ✓ Recommended engineering actions
 ✓ CSV reporting
+✓ HTML reporting
 ✓ Fleet WAN scanning
 ✓ Mixed-fleet inventory support
 ✓ Automatic WAN topology awareness
@@ -302,10 +308,12 @@ The WAN diagnostics engine performs automated analysis of modem runtime state in
 Current fault classifications include:
 
 * WAN Operational
+* WAN Disabled by Fleet Design
 * Modem Not Detected
 * Network Registration Failure (NO PLMN)
 * WAN Attach / Interface Bring-Up Failure
-* DHCP Negotiation Failure
+* DHCP Negotiation Failure (dhcp_cal)
+* DHCP Lease Acquisition Failure (No Lease)
 * LTE Session Establishment Failure
 * High Latency WAN Failure (60000ms RTT)
 * WAN Session Recovery Failure
@@ -344,7 +352,8 @@ The project also reinforced:
 
 ### WAN Diagnostics
 
-* HTML reporting and dashboards.
+* Combined GPS and WAN fleet health reports.
+* Interactive web dashboard.
 * Scheduled WAN health scans.
 * Historical WAN fault trending.
 * Automated remediation workflows.
@@ -376,6 +385,10 @@ The project also reinforced:
 * Introduced mixed-fleet support with hardware-aware WAN profiles.
 * Created a growing WAN fault knowledge base from live operational data.
 * Reduced the need for manual modem investigation and WAN troubleshooting.
+* Added fleet-wide HTML WAN reporting.
+* Implemented fleet-aware WAN topology validation.
+* Added WAN disabled-by-design detection.
+* Added DHCP lease acquisition fault detection (No Lease).
 
 ## Author
 
