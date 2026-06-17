@@ -139,7 +139,23 @@ def get_wan_recommendation(wan_number, status, results):
             "WAN operational",
             "No action required."
         )
+    rtt = results.get(f"{prefix}_loadbalance", "")
 
+    wan_data = parse_wan_loadbalance(
+    results.get(f"{prefix}_loadbalance", "")
+    )
+
+    try:
+        latency_ms = int(float(wan_data.get("rtt", "0")))
+    except ValueError:
+        latency_ms = 0
+
+    if state in ["SHOW-LTE", "SHOWTIME"] and latency_ms >= 60000:
+        return (
+            "WAN attached but failing latency check",
+            "Reset WAN process and monitor. If high latency returns, raise FSE ticket for modem investigation or replacement."
+        )
+    
     if (
         state == "INIT"
         and "Attempting network attach" in attach_state
@@ -175,16 +191,67 @@ def get_wan_recommendation(wan_number, status, results):
             "Reset WAN process or reboot CCU. If the state returns, raise FSE ticket for modem investigation or replacement."
         )
 
+    if (
+        "NO PLMN" in state.upper()
+        or "NO PLMN" in attach_state.upper()
+        or "NO PLMN" in registration.upper()
+    ):
+        return (
+            "Network registration failure - NO PLMN",
+            "Reset WAN process and monitor. If NO PLMN reoccurs after WAN process restart or train reboot, raise FSE ticket for modem or SIM investigation."
+        )
+
     if interface == "" and device == "" and ca_state == "0":
         return (
             "WAN unavailable - no active interface",
             "Reset WAN process and monitor. If interface remains unavailable, raise to 2nd Line or FSE for modem investigation."
+        )
+    
+    if state in ["SHOW-LTE", "SHOWTIME"] and attach_state == "Power On":
+        return (
+            "WAN session not fully established after reset",
+            "Monitor for recovery. If the WAN remains in Power On state or reoccurs after WAN process reset, escalate for modem investigation."
+        )
+
+    if state == "SHOW-LTE" and attach_state == "-------":
+        return (
+            "LTE registration incomplete",
+            "Reset WAN process and monitor. If fault persists, investigate modem registration and data session establishment."
         )
 
     return (
         "WAN unavailable - cause not yet classified",
         "Review modem state, registration status, attach state, and interface data. Escalate if fault persists."
     )
+
+def get_wan_result(wan_number, results, train_profile):
+    wan_id = f"{wan_number:02d}"
+    prefix = f"wan{wan_number}"
+
+    if wan_id not in train_profile.get("active_wans", []):
+        return {
+            "status": "DISABLED",
+            "diagnosis": "WAN disabled by fleet design",
+            "next_steps": "No action required.",
+        }
+
+    wan_data = parse_wan_loadbalance(
+        results.get(f"{prefix}_loadbalance", "")
+    )
+
+    status = classify_wan_status(wan_data)
+
+    diagnosis, next_steps = get_wan_recommendation(
+        wan_number,
+        status,
+        results,
+    )
+
+    return {
+        "status": status,
+        "diagnosis": diagnosis,
+        "next_steps": next_steps,
+    }
 
 def run_ssh_command(host, port, username, key_file, passphrase, command):
     client = paramiko.SSHClient()
@@ -197,19 +264,19 @@ def run_ssh_command(host, port, username, key_file, passphrase, command):
             username=username,
             key_filename=key_file,
             passphrase=passphrase,
-            timeout=10,
+            timeout=25,
             look_for_keys=False,
             allow_agent=False,
         )
 
-        stdin, stdout, stderr = client.exec_command(command, timeout=15)
+        stdin, stdout, stderr = client.exec_command(command, timeout=30)
 
         output = stdout.read().decode(errors="ignore").strip()
         error = stderr.read().decode(errors="ignore").strip()
 
         return output if output else error
 
-    except (socket.timeout, TimeoutError):
+    except (socket.timeout, TimeoutError, paramiko.ssh_exception.NoValidConnectionsError):
         return "CONNECTION_TIMEOUT"
 
     except Exception as e:
@@ -327,56 +394,182 @@ def collect_wan_diagnostics(
 ):
     results = {}
 
-    commands = {
-        "ls_unified": "/usr/local/bin/ls_unified",
+    command = r"""
+    echo
+    echo "### ls_unified ###"
+    /usr/local/bin/ls_unified 2>/dev/null
+    echo
+    echo "### wan1_modem_details ###"
+    cat /var/local/unified/01/modem-details 2>/dev/null
+    echo
+    echo "### wan1_firmware ###"
+    cat /var/local/unified/01/modem-firmware 2>/dev/null
+    echo
+    echo "### wan1_cell_id ###"
+    cat /var/local/unified/01/cell-id 2>/dev/null
+    echo
+    echo "### wan1_loadbalance ###"
+    cat /var/local/loadbalance/wans/wan1 2>/dev/null
+    echo
+    echo "### wan1_state ###"
+    cat /var/local/unified/01/state 2>/dev/null
+    echo
+    echo "### wan1_attach_state ###"
+    cat /var/local/unified/01/attach-state 2>/dev/null
+    echo
+    echo "### wan1_registration_status ###"
+    cat /var/local/unified/01/registration-status 2>/dev/null
+    echo
+    echo "### wan1_operator ###"
+    cat /var/local/unified/01/current-operator 2>/dev/null
+    echo
+    echo "### wan1_tech ###"
+    cat /var/local/unified/01/tech 2>/dev/null
+    echo
+    echo "### wan1_tech_details ###"
+    cat /var/local/unified/01/tech-details 2>/dev/null
+    echo
+    echo "### wan1_ifname ###"
+    cat /var/local/unified/01/ifname 2>/dev/null
+    echo
+    echo "### wan1_dev ###"
+    cat /var/local/unified/01/dev 2>/dev/null
+    echo
+    echo "### wan1_ca ###"
+    cat /var/local/unified/01/ca 2>/dev/null
+    echo
+    
+    echo "### wan2_modem_details ###"
+    cat /var/local/unified/02/modem-details 2>/dev/null
+    echo
+    echo "### wan2_firmware ###"
+    cat /var/local/unified/02/modem-firmware 2>/dev/null
+    echo
+    echo "### wan2_cell_id ###"
+    cat /var/local/unified/02/cell-id 2>/dev/null
+    echo
+    echo "### wan2_loadbalance ###"
+    cat /var/local/loadbalance/wans/wan2 2>/dev/null
+    echo
+    echo "### wan2_state ###"
+    cat /var/local/unified/02/state 2>/dev/null
+    echo
+    echo "### wan2_attach_state ###"
+    cat /var/local/unified/02/attach-state 2>/dev/null
+    echo
+    echo "### wan2_registration_status ###"
+    cat /var/local/unified/02/registration-status 2>/dev/null
+    echo
+    echo "### wan2_operator ###"
+    cat /var/local/unified/02/current-operator 2>/dev/null
+    echo
+    echo "### wan2_tech ###"
+    cat /var/local/unified/02/tech 2>/dev/null
+    echo
+    echo "### wan2_tech_details ###"
+    cat /var/local/unified/02/tech-details 2>/dev/null
+    echo
+    echo "### wan2_ifname ###"
+    cat /var/local/unified/02/ifname 2>/dev/null
+    echo
+    echo "### wan2_dev ###"
+    cat /var/local/unified/02/dev 2>/dev/null
+    echo
+    echo "### wan2_ca ###"
+    cat /var/local/unified/02/ca 2>/dev/null
+    echo
 
-        "wan1_modem_details": "cat /var/local/unified/01/modem-details 2>/dev/null",
-        "wan1_firmware": "cat /var/local/unified/01/modem-firmware 2>/dev/null",
-        "wan1_cell_id": "cat /var/local/unified/01/cell-id 2>/dev/null",
-        "wan1_loadbalance": "cat /var/local/loadbalance/wans/wan1 2>/dev/null",
-        "wan1_state": "cat /var/local/unified/01/state 2>/dev/null",
-        "wan1_attach_state": "cat /var/local/unified/01/attach-state 2>/dev/null",
-        "wan1_registration_status": "cat /var/local/unified/01/registration-status 2>/dev/null",
-        "wan1_operator": "cat /var/local/unified/01/current-operator 2>/dev/null",
-        "wan1_tech": "cat /var/local/unified/01/tech 2>/dev/null",
-        "wan1_tech_details": "cat /var/local/unified/01/tech-details 2>/dev/null",
-        "wan1_ifname": "cat /var/local/unified/01/ifname 2>/dev/null",
-        "wan1_dev": "cat /var/local/unified/01/dev 2>/dev/null",
-        "wan1_ca": "cat /var/local/unified/01/ca 2>/dev/null",
+    echo "### wan3_modem_details ###"
+    cat /var/local/unified/03/modem-details 2>/dev/null
+    echo
+    echo "### wan3_firmware ###"
+    cat /var/local/unified/03/modem-firmware 2>/dev/null
+    echo
+    echo "### wan3_cell_id ###"
+    cat /var/local/unified/03/cell-id 2>/dev/null
+    echo
+    echo "### wan3_loadbalance ###"
+    cat /var/local/loadbalance/wans/wan3 2>/dev/null
+    echo
+    echo "### wan3_state ###"
+    cat /var/local/unified/03/state 2>/dev/null
+    echo
+    echo "### wan3_attach_state ###"
+    cat /var/local/unified/03/attach-state 2>/dev/null
+    echo
+    echo "### wan3_registration_status ###"
+    cat /var/local/unified/03/registration-status 2>/dev/null
+    echo
+    echo "### wan3_operator ###"
+    cat /var/local/unified/03/current-operator 2>/dev/null
+    echo
+    echo "### wan3_tech ###"
+    cat /var/local/unified/03/tech 2>/dev/null
+    echo
+    echo "### wan3_tech_details ###"
+    cat /var/local/unified/03/tech-details 2>/dev/null
+    echo
+    echo "### wan3_ifname ###"
+    cat /var/local/unified/03/ifname 2>/dev/null
+    echo
+    echo "### wan3_dev ###"
+    cat /var/local/unified/03/dev 2>/dev/null
+    echo
+    echo "### wan3_ca ###"
+    cat /var/local/unified/03/ca 2>/dev/null
+    echo
+    """
 
-        "wan2_modem_details": "cat /var/local/unified/02/modem-details 2>/dev/null",
-        "wan2_firmware": "cat /var/local/unified/02/modem-firmware 2>/dev/null",
-        "wan2_cell_id": "cat /var/local/unified/02/cell-id 2>/dev/null",
-        "wan2_loadbalance": "cat /var/local/loadbalance/wans/wan2 2>/dev/null",
-        "wan2_state": "cat /var/local/unified/02/state 2>/dev/null",
-        "wan2_attach_state": "cat /var/local/unified/02/attach-state 2>/dev/null",
-        "wan2_registration_status": "cat /var/local/unified/02/registration-status 2>/dev/null",
-        "wan2_operator": "cat /var/local/unified/02/current-operator 2>/dev/null",
-        "wan2_tech": "cat /var/local/unified/02/tech 2>/dev/null",
-        "wan2_tech_details": "cat /var/local/unified/02/tech-details 2>/dev/null",
-        "wan2_ifname": "cat /var/local/unified/02/ifname 2>/dev/null",
-        "wan2_dev": "cat /var/local/unified/02/dev 2>/dev/null",
-        "wan2_ca": "cat /var/local/unified/02/ca 2>/dev/null",
+    output = run_ssh_command(
+        host,
+        SSH_PORT,
+        username,
+        key_file,
+        passphrase,
+        command,
+    )
 
-        "wan3_loadbalance": "cat /var/local/loadbalance/wans/wan3 2>/dev/null",
-        "wan3_state": "cat /var/local/unified/03/state 2>/dev/null",
-        "wan3_attach_state": "cat /var/local/unified/03/attach-state 2>/dev/null",
-        "wan3_registration_status": "cat /var/local/unified/03/registration-status 2>/dev/null",
-        "wan3_ifname": "cat /var/local/unified/03/ifname 2>/dev/null",
-        "wan3_dev": "cat /var/local/unified/03/dev 2>/dev/null",
-        "wan3_ca": "cat /var/local/unified/03/ca 2>/dev/null",
-    }
+    if output == "CONNECTION_TIMEOUT" or str(output).startswith("SSH_ERROR"):
+        results["ls_unified"] = output
+        return results
 
-    for name, command in commands.items():
+    current_key = None
+    buffer = []
 
-        results[name] = run_ssh_command(
-            host,
-            SSH_PORT,
-            username,
-            key_file,
-            passphrase,
-            command,
-        )
+    for line in output.splitlines():
+        if line.startswith("### ") and line.endswith(" ###"):
+            if current_key is not None:
+                results[current_key] = "\n".join(buffer).strip()
+
+            current_key = line.replace("###", "").strip()
+            buffer = []
+        else:
+            buffer.append(line)
+
+    if current_key is not None:
+        results[current_key] = "\n".join(buffer).strip()
+
+    expected_keys = ["ls_unified"]
+
+    for wan in [1, 2, 3]:
+        expected_keys.extend([
+            f"wan{wan}_modem_details",
+            f"wan{wan}_firmware",
+            f"wan{wan}_cell_id",
+            f"wan{wan}_loadbalance",
+            f"wan{wan}_state",
+            f"wan{wan}_attach_state",
+            f"wan{wan}_registration_status",
+            f"wan{wan}_operator",
+            f"wan{wan}_tech",
+            f"wan{wan}_tech_details",
+            f"wan{wan}_ifname",
+            f"wan{wan}_dev",
+            f"wan{wan}_ca",
+        ])
+
+    for key in expected_keys:
+        results.setdefault(key, "")
 
     return results
 
@@ -745,6 +938,78 @@ def save_wan_csv_report(train_id, host, results):
 
     print(f"\nWAN CSV report updated: {csv_file}")
 
+def save_wan_fleet_csv_report(train_id, host, results, train_profile, report_file):
+    file_exists = Path(report_file).exists()
+
+    with open(report_file, mode="a", newline="") as file:
+        writer = csv.writer(file)
+
+        if not file_exists:
+            writer.writerow([
+                "timestamp",
+                "train_id",
+                "ip_address",
+                "wan",
+                "fleet_expected",
+                "status",
+                "diagnosis",
+                "next_steps",
+                "modem_state",
+                "attach_state",
+                "registration_status",
+                "operator",
+                "technology",
+                "tech_details",
+                "unified_if",
+                "device",
+                "ca_state",
+                "interface",
+                "latency_ms",
+                "serving_cell",
+                "modem",
+                "firmware",
+            ])
+
+        for wan_number in [1, 2, 3]:
+            wan_id = f"{wan_number:02d}"
+            prefix = f"wan{wan_number}"
+            fleet_expected = wan_id in train_profile.get("active_wans", [])
+
+            wan_data = parse_wan_loadbalance(
+                results.get(f"{prefix}_loadbalance", "")
+            )
+
+            wan_result = get_wan_result(
+                wan_number,
+                results,
+                train_profile,
+            )
+
+            writer.writerow([
+                datetime.now().isoformat(timespec="seconds"),
+                train_id,
+                host,
+                f"WAN{wan_number}",
+                fleet_expected,
+                wan_result["status"],
+                wan_result["diagnosis"],
+                wan_result["next_steps"],
+                results.get(f"{prefix}_state", ""),
+                results.get(f"{prefix}_attach_state", ""),
+                results.get(f"{prefix}_registration_status", ""),
+                results.get(f"{prefix}_operator", ""),
+                results.get(f"{prefix}_tech", ""),
+                results.get(f"{prefix}_tech_details", ""),
+                results.get(f"{prefix}_ifname", ""),
+                results.get(f"{prefix}_dev", ""),
+                results.get(f"{prefix}_ca", ""),
+                wan_data["interface"],
+                wan_data["rtt"],
+                results.get(f"{prefix}_cell_id", ""),
+                results.get(f"{prefix}_modem_details", ""),
+                results.get(f"{prefix}_firmware", ""),
+            ])
+
 def save_csv_report(train_id, host, results, satellites, diagnosis, likely_cause):
     reports_dir = Path("reports")
     reports_dir.mkdir(exist_ok=True)
@@ -966,6 +1231,7 @@ def main():
     print("4. Live SSH GPS check")
     print("5. Fleet Scan")
     print("6. WAN / Modem Diagnostics")
+    print("7. Fleet WAN Scan")
 
     choice = input("\nSelect option: ")
 
@@ -988,6 +1254,9 @@ def main():
 
     elif choice == "6":
         diagnose_wan_live()
+
+    elif choice == "7":
+        diagnose_wan_fleet()
 
     else:
         print("Invalid option")
@@ -1039,6 +1308,147 @@ def create_report_file(inventory_file):
     inventory_name = Path(inventory_file).stem
 
     return reports_dir / f"{timestamp}_{inventory_name}_gps_diag.csv"
+
+def create_wan_report_file(inventory_file):
+    reports_dir = Path("reports")
+    reports_dir.mkdir(exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    inventory_name = Path(inventory_file).stem
+
+    return reports_dir / f"{timestamp}_{inventory_name}_wan_diag.csv"
+
+def diagnose_wan_fleet():
+
+    username = SSH_USERNAME
+    key_file = SSH_KEY_PATH
+    passphrase = getpass("SSH key passphrase: ")
+
+    inventory_file = select_inventory_file()
+    profile_name = inventory_file.stem
+    profile = FLEET_PROFILES.get(profile_name)
+
+    if not profile:
+        raise ValueError(f"No fleet profile found for inventory: {profile_name}")
+
+    report_file = create_wan_report_file(inventory_file)
+    trains = load_train_inventory(inventory_file)
+
+    total_checked = 0
+    offline_count = 0
+    actionable_faults = []
+    offline_units = []
+    error_units = []
+
+    print(f"\nLoaded {len(trains)} trains.")
+    print(f"Using WAN profile: {profile_name}")
+    print(f"Active WANs for this fleet: {', '.join(profile.get('active_wans', []))}\n")
+
+    for train in trains:
+        train_id = train["train_id"]
+        host = train["ip_address"]
+        fleet_name = train.get("fleet") or profile_name
+        train_profile = FLEET_PROFILES.get(fleet_name)
+
+        if not train_id or not host:
+            continue
+
+        if not train_profile:
+            print(f"ERROR: No fleet profile found for {fleet_name} on train {train_id}")
+            error_units.append(train_id)
+            continue
+
+        print(f"\nChecking WAN diagnostics for {train_id} ({host}) - {fleet_name}")
+
+        try:
+            
+            results = collect_wan_diagnostics(
+                host,
+                username,
+                key_file,
+                passphrase,
+            )
+
+            if results.get("ls_unified") == "CONNECTION_TIMEOUT":
+                print("TIMEOUT - retrying once...")
+
+                results = collect_wan_diagnostics(
+                    host,
+                    username,
+                    key_file,
+                    passphrase,
+                )
+
+                if results.get("ls_unified") == "CONNECTION_TIMEOUT":
+                    print("OFFLINE")
+                    offline_count += 1
+                    offline_units.append(train_id)
+                    continue
+
+            elif str(results.get("ls_unified", "")).startswith("SSH_ERROR"):
+                print("SSH ERROR")
+                offline_count += 1
+                offline_units.append(train_id)
+                continue
+
+            save_wan_fleet_csv_report(
+                train_id,
+                host,
+                results,
+                train_profile,
+                report_file,
+            )
+
+            total_checked += 1
+
+            for wan_number in [1, 2, 3]:
+                wan_result = get_wan_result(
+                    wan_number,
+                    results,
+                    train_profile,
+                )
+
+                print(
+                    f"WAN{wan_number}: "
+                    f"{wan_result['status']} - "
+                    f"{wan_result['diagnosis']}"
+                )
+
+                if (
+                    wan_result["status"] != "AVAILABLE"
+                    and wan_result["diagnosis"] != "WAN disabled by fleet design"
+                ):
+                    actionable_faults.append(
+                        f"{train_id} WAN{wan_number}: {wan_result['diagnosis']}"
+                    )
+
+        except Exception as e:
+            print(f"ERROR: {e}")
+            error_units.append(train_id)
+
+    print("\n" + "=" * 70)
+    print("Fleet WAN Scan Complete")
+    print("=" * 70)
+    print(f"Inventory            : {inventory_file.name}")
+    print(f"Total Trains Loaded  : {len(trains)}")
+    print(f"Successfully Checked : {total_checked}")
+    print(f"Offline              : {offline_count}")
+    print(f"Errors               : {len(error_units)}")
+    print(f"Actionable Faults    : {len(actionable_faults)}")
+    print(f"Offline Units        : {', '.join(offline_units) if offline_units else 'None'}")
+    print(f"Error Units          : {', '.join(error_units) if error_units else 'None'}")
+
+    print("\nActionable Fault Summary")
+    print("-" * 70)
+
+    if actionable_faults:
+        for fault in actionable_faults:
+            print(f"- {fault}")
+    else:
+        print("None")
+
+    print("=" * 70)
+    print(f"WAN fleet report saved to: {report_file}")
  
 def diagnose_fleet():
 
@@ -1071,6 +1481,9 @@ def diagnose_fleet():
 
         train_id = train["train_id"]
         host = train["ip_address"]
+
+        if not train_id or not host:
+            continue
 
         print(f"\nChecking {train_id} ({host})")
 

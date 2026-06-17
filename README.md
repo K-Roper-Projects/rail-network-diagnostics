@@ -9,10 +9,13 @@ Current Version Highlights
 ✓ Multi-fleet GPS diagnostics
 ✓ Automatic GPS device discovery
 ✓ Fleet-wide GPS scanning
+✓ Fleet-wide WAN scanning
 ✓ WAN and modem diagnostics
 ✓ Automated WAN fault classification
 ✓ Engineering action recommendations
+✓ Mixed-fleet hardware profile support
 ✓ CSV reporting and evidence collection
+✓ Real-world modem fault signature analysis
 
 ---
 
@@ -107,6 +110,29 @@ The tool can remotely validate:
 * Recommended engineering actions
 * WAN diagnostic CSV export
 
+### Fleet WAN Scanning
+
+The platform can perform fleet-wide WAN health assessments across multiple train fleets.
+
+Features include:
+
+* Inventory-driven WAN scanning
+* Automatic fleet profile detection
+* Support for differing WAN topologies
+* Offline train identification
+* WAN fault classification
+* Engineering action recommendations
+* Fleet-wide CSV reporting
+
+Supported WAN configurations:
+
+| Fleet | Active WANs |
+|---------|---------|
+| GWR 165/166 | WAN1, WAN3 |
+| GWR 800/802 | WAN1, WAN2 |
+| XC 170 | WAN1, WAN2, WAN3 |
+| XC 220/221 | WAN1, WAN2, WAN3 |
+
 ### Automatic GPS Device Discovery
 
 4600CCU platforms dynamically assign USB serial devices during boot.
@@ -165,6 +191,8 @@ Likely Cause         : GPS has a valid active fix
 rail-network-diagnostics
 │
 ├── docs/
+│   ├── WAN_FAULT_LIBRARY.md
+│   └── project_notes.md
 ├── inventory/
 │   └── example_inventory.csv
 ├── reports/
@@ -260,6 +288,12 @@ rail-network-diagnostics
 ✓ Automated fault diagnosis
 ✓ Recommended engineering actions
 ✓ CSV reporting
+✓ Fleet WAN scanning
+✓ Mixed-fleet inventory support
+✓ Automatic WAN topology awareness
+✓ Offline train detection
+✓ WAN fault signature analysis
+✓ Engineering action recommendations
 
 ## WAN Fault Classification
 
@@ -269,12 +303,17 @@ Current fault classifications include:
 
 * WAN Operational
 * Modem Not Detected
-* Network Registration Failure
-* DHCP Negotiation Failure
+* Network Registration Failure (NO PLMN)
 * WAN Attach / Interface Bring-Up Failure
-* WAN Unavailable - Investigation Required
+* DHCP Negotiation Failure
+* LTE Session Establishment Failure
+* High Latency WAN Failure (60000ms RTT)
+* WAN Session Recovery Failure
+* Offline / Connection Timeout
 
-Each diagnosis includes recommended next steps to assist first-line support teams with fault triage and escalation decisions.
+Each diagnosis includes recommended engineering actions and escalation guidance based on observed modem state information.
+
+The classification engine is continuously refined using live fleet data and verified engineering outcomes.
 
 ## Lessons Learned
 
@@ -283,6 +322,8 @@ This project highlighted the importance of validating assumptions against real-w
 Initially, GPS serial devices were assumed to be fixed across fleets. Investigation of multiple 4600CCU platforms demonstrated that USB serial devices are dynamically assigned during boot, requiring automatic device discovery rather than hardcoded paths.
 
 Investigation of the onboard WAN subsystem revealed that valuable modem health information is exposed through the unified runtime database located under /var/local/unified. By analysing modem state, registration status, attach state, interface creation and carrier aggregation status, the project evolved from simple status reporting into evidence-based fault classification capable of identifying likely modem failures and recommended engineering actions.
+
+Fleet-wide WAN scanning introduced additional complexity due to differing hardware and modem configurations across train fleets. This required the development of fleet-specific WAN profiles capable of understanding which WAN interfaces are expected to be operational on each platform. The resulting architecture allows a single diagnostics platform to accurately assess multiple fleets while accounting for hardware differences and differing network topologies.
 
 The project also reinforced:
 
@@ -303,14 +344,12 @@ The project also reinforced:
 
 ### WAN Diagnostics
 
-* Fleet WAN scanning.
-* Fleet-wide modem health reporting.
-* Historical fault trending.
-* Additional modem fault signatures.
-* Automatic FSE visit recommendations.
+* HTML reporting and dashboards.
+* Scheduled WAN health scans.
+* Historical WAN fault trending.
+* Automated remediation workflows.
+* Email-based reporting and notifications.
 * Automated ticket generation.
-* SIM and carrier diagnostics.
-* DHCP and carrier attach diagnostics.
 
 ### Network Monitoring
 
@@ -328,6 +367,15 @@ The project also reinforced:
 * Web dashboard and analytics.
 
 ---
+
+## Recent Project Milestones
+
+* Added fleet-wide WAN diagnostics across multiple train fleets.
+* Implemented automated modem fault classification.
+* Added engineering action recommendations based on detected fault signatures.
+* Introduced mixed-fleet support with hardware-aware WAN profiles.
+* Created a growing WAN fault knowledge base from live operational data.
+* Reduced the need for manual modem investigation and WAN troubleshooting.
 
 ## Author
 
