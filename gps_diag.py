@@ -95,6 +95,96 @@ def parse_satellites(nmea_text):
 
     return int(match.group(1))
 
+def get_gps_recommendation(results, satellites):
+    gprmc = parse_gprmc(results.get("gprmc", ""))
+    gps_device = results.get("gps_device", "")
+    nmea = results.get("nmea", "")
+    tty = results.get("tty", "")
+    gps_process = results.get("gps", "")
+    mqtt_process = results.get("mqtt", "")
+    broadcast_process = results.get("broadcast", "")
+    vlan105 = results.get("vlan105", "")
+
+    if gps_device == "NOT_DETECTED" or "GPS_DEVICE_NOT_DETECTED" in tty:
+        return (
+            "GPS device not detected",
+            "Check GPS receiver connection, serial device mapping, and CCU hardware. If the device remains missing after reboot, raise FSE ticket for GPS receiver or cabling investigation."
+        )
+
+    if not gps_process.strip():
+        return (
+            "GPS process not running",
+            "Restart GPS service or reboot CCU. If the GPS process repeatedly fails to start, escalate for software/service investigation."
+        )
+
+    if not contains_nmea(nmea):
+        return (
+            "GPS receiver not outputting NMEA",
+            "Check GPS receiver output and serial port assignment. If no NMEA is present after reboot, raise FSE ticket for GPS receiver or antenna path investigation."
+        )
+
+    if satellites == 0:
+        return (
+            "GPS has no satellites visible",
+            "Check GPS antenna, antenna cabling, receiver placement, and possible obstruction. Raise FSE ticket if persistent."
+        )
+
+    if (
+        gprmc["status"] == "V"
+        and gprmc["utc_time"] == "Missing"
+        and satellites == 0
+    ):
+        return (
+            "GPS invalid fix - no satellites visible",
+            "Likely GPS antenna, receiver, or reception issue. Check antenna path and receiver health."
+        )
+
+    if (
+        gprmc["status"] == "V"
+        and satellites is not None
+        and satellites > 0
+    ):
+        return (
+            "GPS invalid fix despite satellite visibility",
+            "GPS receiver can see satellites but has not obtained a valid navigation solution. Monitor for recovery and investigate receiver or antenna performance if persistent."
+        )
+
+    if gprmc["status"] == "V":
+        return (
+            "GPS invalid fix",
+            "GPS receiver is outputting data but does not currently have a valid fix. Monitor and investigate if persistent."
+        )
+
+    if gprmc["healthy"]:
+
+        if not mqtt_process.strip():
+            return (
+                "GPS operational with service warning",
+                "GPS receiver has a valid fix, but MQTT is not running. Restart MQTT process or reboot CCU if GPS data is not being consumed correctly."
+            )
+
+        if "broadcast_unicast_gps.py" not in broadcast_process:
+            return (
+                "GPS operational with service warning",
+                "GPS receiver has a valid fix, but the GPS broadcast process is not running. Restart GPS broadcast process or reboot CCU if downstream systems are not receiving GPS data."
+            )
+
+        if "br0.105" not in vlan105:
+            return (
+                "GPS operational with network warning",
+                "GPS receiver has a valid fix, but VLAN105 is missing. Check CCU network/VLAN configuration if GPS data is not reaching downstream systems."
+            )
+
+        return (
+            "GPS operational",
+            "No action required."
+        )
+
+    return (
+        "GPS fault - cause not yet classified",
+        "Review GPS process, serial device, NMEA output, GPRMC status, satellite count, MQTT, broadcast process, and VLAN105 status."
+    )
+
 def parse_wan_loadbalance(loadbalance_text):
 
     data = {}
@@ -208,7 +298,16 @@ def get_wan_recommendation(wan_number, status, results):
             "WAN INIT - attach/interface bring-up failure",
             "Reset WAN process and monitor. If the fault reoccurs after WAN process restart or train reboot, raise FSE ticket for modem replacement."
         )
-
+    if (
+        "NO LEASE" in state.upper()
+        or "NO LEASE" in attach_state.upper()
+        or "NO LEASE" in registration.upper()
+    ):
+        return (
+            "WAN DHCP lease acquisition failure",
+            "Reset WAN process and monitor. If fault develops into dhcp_cal or reoccurs, investigate Sierra Wireless modem session handling and consider modem replacement."
+        )
+    
     if state in ["WAIT#DHCP", "STATE_WAIT_DHCP"]:
         return (
             "WAN DHCP negotiation failure",
@@ -756,21 +855,10 @@ def print_extended_report(train_id, results, satellites):
 
     vlan_present = "br0.105" in results["vlan105"]
 
-    if gprmc["healthy"]:
-        diagnosis = "GPS HEALTHY"
-        likely_cause = "GPS has a valid active fix"
-
-    elif gprmc["status"] == "V" and satellites == 0:
-        diagnosis = "GPS FAILED"
-        likely_cause = "Likely GPS reception / antenna path issue"
-
-    elif gprmc["status"] == "V":
-        diagnosis = "GPS FAILED"
-        likely_cause = "Invalid GPS fix"
-
-    else:
-        diagnosis = "GPS UNKNOWN"
-        likely_cause = "Unable to classify GPS status"
+    diagnosis, likely_cause = get_gps_recommendation(
+        results,
+        satellites,
+    )
 
     print("\n" + "=" * 80)
     print(f"GPS Diagnostic Report - {train_id}")
@@ -1375,7 +1463,7 @@ def main():
     print("2. Test faulty GPRMC sample")
     print("3. Enter custom file path")
     print("4. Live SSH GPS check")
-    print("5. Fleet Scan")
+    print("5. Fleet GPS Scan")
     print("6. WAN / Modem Diagnostics")
     print("7. Fleet WAN Scan")
 

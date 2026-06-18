@@ -11,6 +11,7 @@ Current Version Highlights
 ✓ Multi-fleet GPS diagnostics
 ✓ Automatic GPS device discovery
 ✓ Fleet-wide GPS scanning
+✓ Automate GPS fault diagnosis across multiple train fleets
 ✓ Fleet-wide WAN scanning
 ✓ WAN and modem diagnostics
 ✓ Automated WAN fault classification
@@ -26,7 +27,8 @@ Current Version Highlights
 
 ### Primary Objectives
 
-* Automate GPS fault diagnosis across multiple train fleets.
+* Advanced GPS root cause classification and engineering recommendations
+* Combined GPS and WAN fleet health reporting
 * Reduce time spent manually connecting to individual train CCUs.
 * Provide consistent fault reporting for support engineers.
 * Identify GPS receiver, antenna, and service-related issues remotely.
