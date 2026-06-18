@@ -27,8 +27,8 @@ Current Version Highlights
 
 ### Primary Objectives
 
-* Advanced GPS root cause classification and engineering recommendations
 * Combined GPS and WAN fleet health reporting
+* Historical fault trending and analytics
 * Reduce time spent manually connecting to individual train CCUs.
 * Provide consistent fault reporting for support engineers.
 * Identify GPS receiver, antenna, and service-related issues remotely.
@@ -175,7 +175,7 @@ GPS Device Present   : True
 GPS Device Used      : /dev/ttyUSB3
 GPS Process Running  : True
 MQTT Running         : True
-Broadcast Running    : True
+Broadcast Running    : False
 VLAN105 Present      : True
 
 GPS STATUS
@@ -186,8 +186,8 @@ Satellites Visible   : 20
 
 ASSESSMENT
 ----------------------------------------
-Diagnosis            : GPS HEALTHY
-Likely Cause         : GPS has a valid active fix
+Diagnosis            : GPS operational with service warning
+Likely Cause         : GPS receiver has a valid fix, but the GPS broadcast process is not running.
 ```
 
 ---
@@ -198,7 +198,7 @@ Likely Cause         : GPS has a valid active fix
 rail-network-diagnostics
 │
 ├── docs/
-│   ├── WAN_FAULT_LIBRARY.md
+│   ├── FAULT_LIBRARY.md
 │   └── project_notes.md
 ├── inventory/
 │   └── example_inventory.csv
@@ -273,12 +273,14 @@ rail-network-diagnostics
 
 ### GPS Diagnostics
 
-✓ Fleet GPS scanning  
-✓ Automatic GPS device discovery  
-✓ GPS process validation  
-✓ MQTT validation  
-✓ GPS broadcast validation  
-✓ CSV reporting  
+✓ Fleet GPS scanning
+✓ Automatic GPS device discovery
+✓ GPS process validation
+✓ MQTT validation
+✓ GPS broadcast validation
+✓ Advanced GPS fault classification
+✓ Engineering action recommendations
+✓ CSV reporting
 
 ### WAN Diagnostics
 
@@ -303,9 +305,28 @@ rail-network-diagnostics
 ✓ WAN fault signature analysis
 ✓ Engineering action recommendations
 
-## WAN Fault Classification
+## Fault Classification Engine
 
 The WAN diagnostics engine performs automated analysis of modem runtime state information collected from onboard CCUs.
+
+### GPS Fault Classifications
+
+Current fault classifications include:
+
+* GPS Operational
+* GPS Operational with Service Warning
+* GPS Operational with Network Warning
+* GPS Device Not Detected
+* GPS Process Not Running
+* GPS Receiver Not Outputting NMEA
+* GPS Invalid Fix - No Satellites Visible
+* GPS Invalid Fix Despite Satellite Visibility
+* GPS Invalid Fix
+* GPS Broadcast Process Not Running
+* MQTT Process Not Running
+* GPS VLAN105 Interface Missing
+
+### WAN Fault Classifications
 
 Current fault classifications include:
 
@@ -371,7 +392,7 @@ The project also reinforced:
 
 ### Platform Evolution
 
-* HTML reporting.
+* Combined GPS and WAN HTML reporting.
 * Scheduled health scans.
 * Database-backed reporting.
 * AWS-hosted diagnostic platform.
@@ -381,6 +402,10 @@ The project also reinforced:
 
 ## Recent Project Milestones
 
+* Implemented advanced GPS fault classification and engineering recommendations.
+* Added GPS service and network warning detection.
+* Added GPS invalid-fix fault signatures based on live fleet observations.
+* Consolidated GPS and WAN knowledge into a unified fault library.
 * Added fleet-wide WAN diagnostics across multiple train fleets.
 * Implemented automated modem fault classification.
 * Added engineering action recommendations based on detected fault signatures.
