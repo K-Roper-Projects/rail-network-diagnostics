@@ -1,3 +1,74 @@
+# Fault Library
+
+## GPS Faults
+
+### GPS invalid fix - no satellites visible
+
+Signature:
+- GPRMC Status = V
+- UTC Missing
+- Satellites = 0
+
+Likely Cause:
+- GPS antenna fault
+- GPS reception issue
+- GPS receiver fault
+
+Recommended Action:
+- Check antenna path
+- Check receiver
+- Reboot and retest
+
+---
+
+### GPS invalid fix despite satellite visibility
+
+Signature:
+- GPRMC Status = V
+- UTC Present
+- Satellites > 0
+
+Likely Cause:
+- Receiver unable to calculate navigation solution
+- Antenna degradation
+- Receiver fault
+
+Recommended Action:
+- Monitor
+- Reboot and retest
+- Investigate receiver performance
+
+---
+
+## WAN Faults
+
+### NO PLMN
+
+Signature:
+- State = NO PLMN
+
+Likely Cause:
+- Network registration failure
+
+Recommended Action:
+- Restart WAN process
+- Investigate SIM/modem if persistent
+
+---
+
+### No Lease
+
+Signature:
+- State = INIT
+- Other = No Lease
+
+Likely Cause:
+- DHCP lease acquisition failure
+
+Recommended Action:
+- Restart WAN process
+- Monitor for dhcp_cal progression
+
 # WAN Fault Library
 
 This document records known WAN and modem fault signatures identified through live fleet diagnostics.
@@ -123,3 +194,10 @@ If the unit repeatedly fails to respond, investigate train connectivity or CCU r
 | -------- | ----------- | ---- | -------------------------------- | ------------------------ | ---------------------------------------------- |
 | 165122   | GWR 165/166 | WAN1 | INIT / Attempting network attach | WAN reset attempted      | Fault persisted, modem replacement recommended |
 | 800014   | GWR 800/802 | WAN1 | SHOW-LTE / Power On              | WAN reset x2, CCU reboot | Fault persisted, FSE investigation required    |
+
+Fault family: Sierra Wireless DHCP/session lock
+Observed modem: Sierra Wireless MC7455
+State progression: INIT / No Lease → INIT - dhcp_cal
+Likely cause: Modem session/DHCP process stuck
+Recommended action: Reset WAN process and monitor
+Escalation: If recurring, raise for modem investigation/replacement
