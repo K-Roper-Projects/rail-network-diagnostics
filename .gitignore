@@ -23,3 +23,5 @@ inventory/*.csv
 # Archive Directory
 GPS_DIAG.archive/
 
+# Draw.io backup files
+*.bkp
