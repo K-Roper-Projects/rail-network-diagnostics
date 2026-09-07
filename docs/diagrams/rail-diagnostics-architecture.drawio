@@ -1,0 +1,97 @@
+<mxfile host="Electron">
+  <diagram name="Page-1" id="zY-jgPVo3I8jqdkH4-Zs">
+    <mxGraphModel dx="2020" dy="2370" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="-Hfrz96kr1OFzJNydPMh-11" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="" vertex="1">
+          <mxGeometry height="280" width="1490" x="30" y="-30" as="geometry" />
+        </mxCell>
+        <mxCell id="-Hfrz96kr1OFzJNydPMh-7" parent="1" style="shape=ext;double=1;rounded=1;whiteSpace=wrap;html=1;" value="FLEET HEALTH REPORTING" vertex="1">
+          <mxGeometry height="140" width="190" x="1320" y="55" as="geometry" />
+        </mxCell>
+        <mxCell id="LTJ88LeZ0NFavkOctShT-2" parent="1" style="shape=ext;double=1;rounded=1;whiteSpace=wrap;html=1;" value="" vertex="1">
+          <mxGeometry height="140" width="280" x="240" y="320" as="geometry" />
+        </mxCell>
+        <mxCell id="LTJ88LeZ0NFavkOctShT-1" parent="1" style="shape=ext;double=1;rounded=1;whiteSpace=wrap;html=1;" value="FLEET INVENTORY" vertex="1">
+          <mxGeometry height="80" width="120" x="40" y="95" as="geometry" />
+        </mxCell>
+        <mxCell id="LTJ88LeZ0NFavkOctShT-4" parent="1" style="shape=ext;double=1;rounded=1;whiteSpace=wrap;html=1;" value="GPS" vertex="1">
+          <mxGeometry height="50" width="70" x="250" y="405" as="geometry" />
+        </mxCell>
+        <mxCell id="LTJ88LeZ0NFavkOctShT-6" parent="1" style="shape=ext;double=1;rounded=1;whiteSpace=wrap;html=1;" value="WAN" vertex="1">
+          <mxGeometry height="50" width="70" x="440" y="405" as="geometry" />
+        </mxCell>
+        <mxCell id="LTJ88LeZ0NFavkOctShT-7" parent="1" style="shape=ext;double=1;rounded=1;whiteSpace=wrap;html=1;" value="Services" vertex="1">
+          <mxGeometry height="50" width="70" x="345" y="405" as="geometry" />
+        </mxCell>
+        <mxCell id="LTJ88LeZ0NFavkOctShT-8" parent="1" style="shape=ext;double=1;rounded=1;whiteSpace=wrap;html=1;" value="HTML" vertex="1">
+          <mxGeometry height="40" width="60" x="1340" y="145" as="geometry" />
+        </mxCell>
+        <mxCell id="LTJ88LeZ0NFavkOctShT-9" parent="1" style="shape=ext;double=1;rounded=1;whiteSpace=wrap;html=1;" value="DIAGNOSTIC ENGINE" vertex="1">
+          <mxGeometry height="140" width="280" x="600" y="55" as="geometry" />
+        </mxCell>
+        <mxCell id="LTJ88LeZ0NFavkOctShT-10" parent="1" style="shape=ext;double=1;rounded=1;whiteSpace=wrap;html=1;" value="Evidence Collection" vertex="1">
+          <mxGeometry height="50" width="100" x="630" y="140" as="geometry" />
+        </mxCell>
+        <mxCell id="LTJ88LeZ0NFavkOctShT-12" parent="1" style="shape=ext;double=1;rounded=1;whiteSpace=wrap;html=1;" value="Fault Classification" vertex="1">
+          <mxGeometry height="50" width="100" x="760" y="140" as="geometry" />
+        </mxCell>
+        <mxCell id="LTJ88LeZ0NFavkOctShT-15" edge="1" parent="1" style="endArrow=classic;html=1;rounded=0;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <Array as="points">
+              <mxPoint x="310" y="134.5" />
+            </Array>
+            <mxPoint x="160" y="134.5" as="sourcePoint" />
+            <mxPoint x="310" y="310" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="LTJ88LeZ0NFavkOctShT-16" edge="1" parent="1" style="endArrow=classic;html=1;rounded=0;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <Array as="points">
+              <mxPoint x="450" y="134.5" />
+            </Array>
+            <mxPoint x="450" y="310" as="sourcePoint" />
+            <mxPoint x="600" y="134.5" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="-Hfrz96kr1OFzJNydPMh-2" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="SSH" vertex="1">
+          <mxGeometry height="30" width="90" x="180" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="-Hfrz96kr1OFzJNydPMh-3" parent="1" style="shape=ext;double=1;rounded=1;whiteSpace=wrap;html=1;" value="FAULT ASSESSMENT" vertex="1">
+          <mxGeometry height="140" width="280" x="960" y="55" as="geometry" />
+        </mxCell>
+        <mxCell id="-Hfrz96kr1OFzJNydPMh-4" parent="1" style="shape=ext;double=1;rounded=1;whiteSpace=wrap;html=1;" value="Diagnosis" vertex="1">
+          <mxGeometry height="50" width="100" x="990" y="140" as="geometry" />
+        </mxCell>
+        <mxCell id="-Hfrz96kr1OFzJNydPMh-5" parent="1" style="shape=ext;double=1;rounded=1;whiteSpace=wrap;html=1;" value="Engineering Action" vertex="1">
+          <mxGeometry height="50" width="100" x="1120" y="140" as="geometry" />
+        </mxCell>
+        <mxCell id="-Hfrz96kr1OFzJNydPMh-6" edge="1" parent="1" style="endArrow=classic;html=1;rounded=0;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="880" y="134.5" as="sourcePoint" />
+            <mxPoint x="960" y="134.5" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="-Hfrz96kr1OFzJNydPMh-8" parent="1" style="shape=ext;double=1;rounded=1;whiteSpace=wrap;html=1;" value="CSV" vertex="1">
+          <mxGeometry height="40" width="60" x="1430" y="145" as="geometry" />
+        </mxCell>
+        <mxCell id="-Hfrz96kr1OFzJNydPMh-9" edge="1" parent="1" style="endArrow=classic;html=1;rounded=0;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="1240" y="134.5" as="sourcePoint" />
+            <mxPoint x="1320" y="134.5" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="-Hfrz96kr1OFzJNydPMh-10" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="Diagnostic Evidence" vertex="1">
+          <mxGeometry height="30" width="60" x="480" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="-Hfrz96kr1OFzJNydPMh-12" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="&lt;font style=&quot;font-size: 14px;&quot;&gt;Rail Network Diagnostics Platform&lt;/font&gt;" vertex="1">
+          <mxGeometry height="60" width="250" x="90" y="-20" as="geometry" />
+        </mxCell>
+        <mxCell id="-Hfrz96kr1OFzJNydPMh-14" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="ONBOARD LINUX CCU" vertex="1">
+          <mxGeometry height="50" width="150" x="300" y="330" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
