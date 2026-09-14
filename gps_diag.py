@@ -13,6 +13,12 @@ from ssh_client import (
     run_ssh_command,
 )
 
+from diagnostics.health import (
+    classify_gps_health,
+    classify_wan_health,
+    combine_health_states,
+)
+
 from diagnostics.gps import (
     parse_gprmc,
     parse_satellites,
@@ -121,6 +127,54 @@ def detect_gps_device(host, username, key_file, passphrase, profile):
             return device, nmea_output
 
     return "NOT_DETECTED", ""
+
+def collect_gps_diagnostics(
+    host,
+    username,
+    key_file,
+    passphrase,
+    profile,
+):
+    results = {}
+
+    gps_device, nmea_output = detect_gps_device(
+        host,
+        username,
+        key_file,
+        passphrase,
+        profile,
+    )
+
+    checks = {
+        "tty": (
+            f"ls -l {gps_device}"
+            if gps_device != "NOT_DETECTED"
+            else "echo GPS_DEVICE_NOT_DETECTED"
+        ),
+        "gps": "ps aux | grep -i gps | grep -v grep",
+        "mqtt": "ps aux | grep -i mosquitto | grep -v grep",
+        "broadcast": (
+            f"ps aux | grep {profile['broadcast_process']} | grep -v grep"
+        ),
+        "vlan105": f"ip addr show {profile['vlan']}",
+        "gprmc": f"cat {profile['gprmc_file']}",
+    }
+
+    for name, command in checks.items():
+        results[name] = run_ssh_command(
+            host,
+            SSH_PORT,
+            username,
+            key_file,
+            passphrase,
+            command,
+        )
+
+    results["nmea"] = nmea_output
+    results["gps_device"] = gps_device
+    results["host"] = host
+
+    return results
 
 def collect_wan_diagnostics(
     host,
@@ -342,10 +396,6 @@ def print_report(train_id, gprmc_line, satellites=None):
     print(f"Likely Cause: {likely_cause}")
     print("=" * 70)
 
-
-
-
-
 def print_extended_report(train_id, results, satellites):
 
     gprmc = parse_gprmc(results["gprmc"])
@@ -532,10 +582,6 @@ def print_wan_report(train_id, results, train_profile):
 
     print("\n" + "=" * 80)   
 
-
-
-
-
 def save_csv_report(train_id, host, results, satellites, diagnosis, likely_cause):
     reports_dir = Path("reports")
     reports_dir.mkdir(exist_ok=True)
@@ -611,7 +657,6 @@ def diagnose_from_files(gprmc_file, nmea_file=None):
             satellites = parse_satellites(nmea_text)
 
     print_report("Offline Sample", gprmc_line, satellites)
-
 
 def diagnose_live_train():
     train_id = input("Train ID: ")
@@ -714,6 +759,7 @@ def main():
     print("5. Fleet GPS Scan")
     print("6. WAN / Modem Diagnostics")
     print("7. Fleet WAN Scan")
+    print("8. Combined Fleet Health Scan")
 
     choice = input("\nSelect option: ")
 
@@ -739,6 +785,9 @@ def main():
 
     elif choice == "7":
         diagnose_wan_fleet()
+
+    elif choice == "8":
+        diagnose_combined_fleet()
 
     else:
         print("Invalid option")
@@ -984,7 +1033,267 @@ def diagnose_wan_fleet():
 
     print("=" * 70)
     print(f"WAN fleet report saved to: {report_file}")
- 
+
+def diagnose_combined_fleet():
+
+    username = SSH_USERNAME
+    key_file = SSH_KEY_PATH
+    passphrase = getpass("SSH key passphrase: ")
+
+    inventory_file = select_inventory_file()
+    profile_name = inventory_file.stem
+    profile = FLEET_PROFILES.get(profile_name)
+
+    if not profile:
+        raise ValueError(
+            f"No fleet profile found for inventory: {profile_name}"
+        )
+
+    trains = load_train_inventory(inventory_file)
+
+    combined_results = []
+
+    healthy_count = 0
+    degraded_count = 0
+    fault_count = 0
+    offline_count = 0
+    error_count = 0
+
+    print(f"\nLoaded {len(trains)} trains.")
+    print(f"Using profile: {profile_name}\n")
+
+    for train in trains:
+
+        train_id = train["train_id"]
+        host = train["ip_address"]
+        fleet_name = train.get("fleet") or profile_name
+        train_profile = FLEET_PROFILES.get(fleet_name)
+
+        if not train_id or not host:
+            continue
+
+        if not train_profile:
+            print(
+                f"ERROR: No fleet profile found for "
+                f"{fleet_name} on train {train_id}"
+            )
+            error_count += 1
+            continue
+
+        print(f"\nChecking {train_id} ({host}) - {fleet_name}")
+
+        try:
+            # -------------------------
+            # GPS diagnostics
+            # -------------------------
+
+            gps_results = collect_gps_diagnostics(
+                host,
+                username,
+                key_file,
+                passphrase,
+                train_profile,
+            )
+
+            if "CONNECTION_TIMEOUT" in gps_results.values():
+                print("GPS connection timed out - retrying once...")
+
+                gps_results = collect_gps_diagnostics(
+                    host,
+                    username,
+                    key_file,
+                    passphrase,
+                    train_profile,
+                )
+
+            if "CONNECTION_TIMEOUT" in gps_results.values():
+                print("OFFLINE - GPS connection timed out")
+
+                overall_state = combine_health_states(
+                    "FAULT",
+                    "FAULT",
+                    online=False,
+                )
+
+                combined_results.append({
+                    "train_id": train_id,
+                    "ip_address": host,
+                    "gps_state": "UNKNOWN",
+                    "gps_diagnosis": "Train unreachable",
+                    "wan_state": "UNKNOWN",
+                    "wan_results": [],
+                    "overall_state": overall_state,
+                })
+                offline_count += 1
+                continue
+
+            if any(
+                str(value).startswith("SSH_ERROR")
+                for value in gps_results.values()
+            ):
+                print("OFFLINE - SSH error")
+
+                overall_state = combine_health_states(
+                    "FAULT",
+                    "FAULT",
+                    online=False,
+                )
+
+                combined_results.append({
+                    "train_id": train_id,
+                    "ip_address": host,
+                    "gps_state": "UNKNOWN",
+                    "gps_diagnosis": "SSH connection failed",
+                    "wan_state": "UNKNOWN",
+                    "wan_results": [],
+                    "overall_state": overall_state,
+                })
+
+                offline_count += 1
+                continue
+
+            satellites = parse_satellites(
+                gps_results.get("nmea", "")
+            )
+
+            gps_diagnosis, gps_next_steps = (
+                get_gps_recommendation(
+                    gps_results,
+                    satellites,
+                )
+            )
+
+            gps_state = classify_gps_health(
+                gps_diagnosis
+            )
+
+            # -------------------------
+            # WAN diagnostics
+            # -------------------------
+
+            wan_raw_results = collect_wan_diagnostics(
+                host,
+                username,
+                key_file,
+                passphrase,
+            )
+
+            if wan_raw_results.get("ls_unified") == "CONNECTION_TIMEOUT":
+                print("WAN connection timed out - retrying once...")
+
+                wan_raw_results = collect_wan_diagnostics(
+                    host,
+                    username,
+                    key_file,
+                    passphrase,
+                )
+
+            if (
+                wan_raw_results.get("ls_unified")
+                == "CONNECTION_TIMEOUT"
+                or str(
+                    wan_raw_results.get(
+                        "ls_unified",
+                        "",
+                    )
+                ).startswith("SSH_ERROR")
+            ):
+                print("OFFLINE - WAN connection failed")
+
+                overall_state = combine_health_states(
+                    gps_state,
+                    "FAULT",
+                    online=False,
+                )
+
+                combined_results.append({
+                    "train_id": train_id,
+                    "ip_address": host,
+                    "gps_state": gps_state,
+                    "gps_diagnosis": gps_diagnosis,
+                    "wan_state": "UNKNOWN",
+                    "wan_results": [],
+                    "overall_state": overall_state,
+                })
+
+                offline_count += 1
+                continue
+
+            wan_results = []
+
+            for wan_number in [1, 2, 3]:
+                wan_result = get_wan_result(
+                    wan_number,
+                    wan_raw_results,
+                    train_profile,
+                )
+
+                wan_result["wan_number"] = wan_number
+                wan_results.append(wan_result)
+
+            wan_state = classify_wan_health(
+                wan_results
+            )
+
+            overall_state = combine_health_states(
+                gps_state,
+                wan_state,
+            )
+
+            combined_results.append({
+                "train_id": train_id,
+                "ip_address": host,
+                "gps_state": gps_state,
+                "gps_diagnosis": gps_diagnosis,
+                "gps_next_steps": gps_next_steps,
+                "wan_state": wan_state,
+                "wan_results": wan_results,
+                "overall_state": overall_state,
+            })
+
+            print(
+                f"GPS: {gps_state} - "
+                f"{gps_diagnosis}"
+            )
+
+            for wan_result in wan_results:
+                print(
+                    f"WAN{wan_result['wan_number']}: "
+                    f"{wan_result['status']} - "
+                    f"{wan_result['diagnosis']}"
+                )
+
+            print(
+                f"OVERALL HEALTH: {overall_state}"
+            )
+
+            if overall_state == "HEALTHY":
+                healthy_count += 1
+
+            elif overall_state == "DEGRADED":
+                degraded_count += 1
+
+            elif overall_state == "FAULT":
+                fault_count += 1
+
+        except Exception as e:
+            print(f"ERROR: {e}")
+            error_count += 1
+
+    print("\n" + "=" * 70)
+    print("Combined Fleet Health Scan Complete")
+    print("=" * 70)
+    print(f"Inventory       : {inventory_file.name}")
+    print(f"Total Loaded    : {len(trains)}")
+    print(f"Healthy         : {healthy_count}")
+    print(f"Degraded        : {degraded_count}")
+    print(f"Fault           : {fault_count}")
+    print(f"Offline         : {offline_count}")
+    print(f"Errors          : {error_count}")
+    print("=" * 70)
+
+    return combined_results
+
 def diagnose_fleet():
 
     username = SSH_USERNAME
