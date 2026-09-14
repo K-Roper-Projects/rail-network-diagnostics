@@ -38,6 +38,7 @@ from reporting.reports import (
     save_wan_fleet_csv_report,
     save_wan_csv_report,
     generate_wan_html_report,
+    generate_combined_html_report,
 )   
 
 def detect_gps_device(host, username, key_file, passphrase, profile):
@@ -1280,17 +1281,28 @@ def diagnose_combined_fleet():
             print(f"ERROR: {e}")
             error_count += 1
 
-    print("\n" + "=" * 70)
-    print("Combined Fleet Health Scan Complete")
-    print("=" * 70)
-    print(f"Inventory       : {inventory_file.name}")
-    print(f"Total Loaded    : {len(trains)}")
-    print(f"Healthy         : {healthy_count}")
-    print(f"Degraded        : {degraded_count}")
-    print(f"Fault           : {fault_count}")
-    print(f"Offline         : {offline_count}")
-    print(f"Errors          : {error_count}")
-    print("=" * 70)
+        print("=" * 70)
+
+    reports_dir = Path("reports")
+    reports_dir.mkdir(exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    inventory_name = Path(inventory_file).stem
+
+    combined_html_file = (
+        reports_dir
+        / f"{timestamp}_{inventory_name}_combined_health.html"
+    )
+
+    generate_combined_html_report(
+        combined_results,
+        combined_html_file,
+    )
+
+    print(
+        f"Combined HTML report saved to: "
+        f"{combined_html_file}"
+    )
 
     return combined_results
 

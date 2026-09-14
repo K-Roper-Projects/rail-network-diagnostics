@@ -1,4 +1,3 @@
-
 # Environment
 .env
 
@@ -8,6 +7,7 @@
 
 # Reports
 reports/*.csv
+reports/*.html
 
 # Python
 __pycache__/

@@ -2,6 +2,13 @@ import csv
 from datetime import datetime
 from pathlib import Path
 
+from diagnostics.wan import (
+    parse_wan_loadbalance,
+    get_wan_recommendation,
+    classify_wan_status,
+    get_wan_result,
+)
+
 def generate_wan_html_report(scan_results, output_file):
     generated_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -375,3 +382,196 @@ def save_timeout_csv_report(train_id, host, report_file=None):
 
     print(f"\nCSV report updated: {csv_file}")
 
+def generate_combined_html_report(results, report_file):
+
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    status_counts = {
+        "HEALTHY": 0,
+        "DEGRADED": 0,
+        "FAULT": 0,
+        "OFFLINE": 0,
+    }
+
+    for result in results:
+        state = result.get("overall_state", "FAULT")
+        if state in status_counts:
+            status_counts[state] += 1
+
+    rows = []
+
+    for result in results:
+
+        train_id = result.get("train_id", "Unknown")
+        ip_address = result.get("ip_address", "")
+        overall_state = result.get("overall_state", "FAULT")
+
+        gps_state = result.get("gps_state", "UNKNOWN")
+        gps_diagnosis = result.get(
+            "gps_diagnosis",
+            "No GPS diagnosis available",
+        )
+
+        wan_state = result.get("wan_state", "UNKNOWN")
+        wan_results = result.get("wan_results", [])
+
+        wan_lookup = {
+            wan.get("wan_number"): wan
+            for wan in wan_results
+        }
+
+        wan_cells = []
+
+        for wan_number in [1, 2, 3]:
+
+            wan = wan_lookup.get(wan_number)
+
+            if wan:
+                status = wan.get("status", "UNKNOWN")
+                diagnosis = wan.get(
+                    "diagnosis",
+                    "No diagnosis available",
+                )
+
+                wan_cells.append(
+                    f"""
+                    <td>
+                        <strong>{status}</strong><br>
+                        <span>{diagnosis}</span>
+                    </td>
+                    """
+                )
+
+            else:
+                wan_cells.append(
+                    """
+                    <td>
+                        <strong>UNKNOWN</strong><br>
+                        <span>No data available</span>
+                    </td>
+                    """
+                )
+
+        rows.append(
+            f"""
+            <tr>
+                <td>{train_id}</td>
+                <td>{ip_address}</td>
+                <td class="{overall_state.lower()}">
+                    {overall_state}
+                </td>
+                <td>
+                    <strong>{gps_state}</strong><br>
+                    <span>{gps_diagnosis}</span>
+                </td>
+                <td>{wan_state}</td>
+                {''.join(wan_cells)}
+            </tr>
+            """
+        )
+
+    html = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Combined Fleet Health Report</title>
+
+        <style>
+            body {{
+                font-family: Arial, sans-serif;
+                margin: 30px;
+                background-color: #f5f5f5;
+            }}
+
+            h1 {{
+                margin-bottom: 5px;
+            }}
+
+            .summary {{
+                margin: 20px 0;
+                padding: 15px;
+                background: white;
+                border-radius: 6px;
+            }}
+
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+                background: white;
+            }}
+
+            th,
+            td {{
+                border: 1px solid #cccccc;
+                padding: 10px;
+                text-align: left;
+                vertical-align: top;
+            }}
+
+            th {{
+                background-color: #eeeeee;
+            }}
+
+            .healthy {{
+                background-color: #d4edda;
+            }}
+
+            .degraded {{
+                background-color: #fff3cd;
+            }}
+
+            .fault {{
+                background-color: #f8d7da;
+            }}
+
+            .offline {{
+                background-color: #d6d8db;
+            }}
+
+            span {{
+                font-size: 0.9em;
+            }}
+        </style>
+    </head>
+
+    <body>
+
+        <h1>Combined Fleet Health Report</h1>
+        <p>Generated: {generated_at}</p>
+
+        <div class="summary">
+            <strong>Total Trains:</strong> {len(results)}<br>
+            <strong>Healthy:</strong> {status_counts["HEALTHY"]}<br>
+            <strong>Degraded:</strong> {status_counts["DEGRADED"]}<br>
+            <strong>Fault:</strong> {status_counts["FAULT"]}<br>
+            <strong>Offline:</strong> {status_counts["OFFLINE"]}
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Train</th>
+                    <th>IP Address</th>
+                    <th>Overall</th>
+                    <th>GPS</th>
+                    <th>WAN Health</th>
+                    <th>WAN1</th>
+                    <th>WAN2</th>
+                    <th>WAN3</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {''.join(rows)}
+            </tbody>
+        </table>
+
+    </body>
+    </html>
+    """
+
+    report_file.write_text(
+        html,
+        encoding="utf-8",
+    )
