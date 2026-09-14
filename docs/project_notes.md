@@ -474,16 +474,207 @@ The platform currently supports:
 * Fleet GPS scans
 * Individual WAN diagnostics
 * Fleet WAN scans
+* Combined GPS and WAN fleet-health scans
 * CSV diagnostic reports
 * HTML WAN fleet-health reports
-* Fleet-level healthy/fault/offline summaries
+* Combined GPS and WAN HTML fleet-health reports
+* Fleet-level healthy/degraded/fault/offline summaries
 * Actionable fault summaries
 
-Current development direction is toward a combined GPS and WAN fleet-health model.
+Combined reporting retains the underlying GPS and individual WAN diagnoses alongside the overall train-health state.
+
+This allows the overall state to provide a quick fleet-level indication without removing the diagnostic evidence required for engineering investigation.
+
+Generated CSV and HTML reports are excluded from source control.
 
 ---
 
-# 15. Future Engineering Notes
+# 15. Combined Fleet Health
+
+Phase 7 introduced a combined health model that evaluates GPS and WAN health together during a single fleet scan.
+
+The combined health model uses four explicit states:
+
+```text
+HEALTHY
+DEGRADED
+FAULT
+OFFLINE
+```
+
+## Health State Interpretation
+
+### HEALTHY
+
+GPS is healthy and all expected active WAN interfaces are available.
+
+### DEGRADED
+
+The train remains operational, but a warning or partial WAN failure has been detected.
+
+Examples include:
+
+* GPS operational with a service warning
+* GPS operational with a network warning
+* One or more expected WANs unavailable while another expected WAN remains operational
+
+### FAULT
+
+A GPS fault has been detected or no expected active WAN connectivity remains available.
+
+### OFFLINE
+
+The onboard CCU cannot be reached sufficiently to complete the combined diagnostic assessment.
+
+An unreachable CCU is classified as `OFFLINE` rather than attempting to infer GPS or WAN failure from missing evidence.
+
+---
+
+## WAN Health Calculation
+
+WAN health is calculated using only interfaces expected to be active for the selected fleet profile.
+
+Current logic:
+
+```text
+All expected active WANs available
+    -> HEALTHY
+
+At least one expected active WAN available, but not all
+    -> DEGRADED
+
+No expected active WANs available
+    -> FAULT
+```
+
+WAN interfaces disabled by fleet design are excluded from the calculation.
+
+This is important because loss of a single WAN does not necessarily mean the onboard communications system has completely failed when another cellular path remains operational.
+
+---
+
+## Combined Health Decision
+
+The most severe meaningful subsystem condition determines the combined result.
+
+A numeric health percentage was deliberately avoided.
+
+A percentage could imply a level of precision that does not exist and could hide the operational importance of an individual failure.
+
+For example, one failed WAN on a three-WAN platform does not mean that the train is simply "66% healthy".
+
+The explicit severity states provide a clearer operational interpretation while the individual GPS and WAN results retain the evidence behind the classification.
+
+---
+
+## Offline Handling
+
+The combined scan retries an SSH connection following a connection timeout.
+
+If communication remains unavailable after retry, the train is classified as:
+
+```text
+OFFLINE
+```
+
+rather than assigning a GPS or WAN fault without supporting evidence.
+
+One condition remains for live operational validation:
+
+If GPS collection succeeds but SSH connectivity is subsequently lost during WAN collection, the current implementation classifies the train as `OFFLINE`.
+
+Live testing will determine whether this remains the most useful classification or whether an interrupted/incomplete diagnostic state should be distinguished in future.
+
+---
+
+# 16. Application Architecture
+
+Phase 7 refactored the original diagnostic application before introducing combined GPS and WAN health assessment.
+
+The project had developed primarily within `gps_diag.py`, which was responsible for fleet configuration, SSH communication, GPS diagnostics, WAN diagnostics, reporting and application workflow.
+
+As functionality increased, continuing to add features to the same script would make the diagnostic platform increasingly difficult to maintain and extend.
+
+The application was therefore separated into dedicated modules while preserving existing diagnostic behaviour.
+
+Current responsibilities are:
+
+```text
+config/fleet_profiles.py
+    Fleet-specific hardware and WAN topology configuration
+
+ssh_client.py
+    Reusable SSH communication
+
+diagnostics/gps.py
+    GPS parsing and diagnostic classification
+
+diagnostics/wan.py
+    WAN parsing and diagnostic classification
+
+diagnostics/health.py
+    Combined GPS/WAN health classification
+
+reporting/reports.py
+    CSV and HTML report generation
+
+gps_diag.py
+    Diagnostic collection, workflow and application orchestration
+```
+
+## Collection vs Interpretation
+
+An important architectural decision was to separate collection of diagnostic evidence from interpretation of that evidence.
+
+Remote operations that interact directly with the onboard Linux system remain part of the collection/orchestration layer.
+
+Examples include:
+
+* SSH command execution
+* GPS device discovery
+* Process inspection
+* Reading runtime files
+* WAN evidence collection
+
+Functions that interpret already-collected evidence belong in the diagnostic modules.
+
+Examples include:
+
+* GPRMC parsing
+* Satellite parsing
+* GPS fault classification
+* WAN state parsing
+* WAN fault classification
+* Combined health classification
+
+This separation should allow future diagnostics to be developed and tested without continually increasing the responsibilities of the main application script.
+
+---
+
+## Refactor Validation
+
+The refactor was intentionally behaviour-preserving.
+
+Existing healthy and faulty offline GPS samples were used repeatedly during development to confirm that moving functionality between modules did not alter established diagnostic results.
+
+Validation during Phase 7 included:
+
+* Python `py_compile` checks
+* VS Code/Pylance static analysis
+* Existing GPS regression samples
+* Direct GPS/WAN health-classification tests
+* Combined health-classification tests
+* Simulated combined HTML reporting across HEALTHY, DEGRADED, FAULT and OFFLINE states
+
+Pylance identified unresolved WAN diagnostic dependencies within `reporting/reports.py` that were not identified by `py_compile`.
+
+This reinforced the use of both static analysis and runtime/compilation checks when validating future refactoring work.
+
+Final live validation against operational systems is required before the Phase 7 implementation is considered fully validated.
+
+---
+
+# 17. Future Engineering Notes
 
 Planned areas for future investigation include:
 
