@@ -65,7 +65,7 @@ The GPS receiver is operational and has a valid navigation fix, but a supporting
 ### Recommended Action
 
 * Restart the affected service where appropriate.
-* Reboot the CCU if required.
+* Reboot the onboard system if required.
 * Confirm downstream systems are receiving GPS information.
 * Escalate for software investigation if the process repeatedly fails.
 
@@ -94,7 +94,7 @@ The GPS receiver is operational, but the expected GPS network/VLAN interface is 
 
 ### Recommended Action
 
-* Check CCU network configuration.
+* Check onboard system network configuration.
 * Confirm VLAN105 is configured and active.
 * Confirm GPS information is reaching downstream systems.
 * Escalate for network configuration investigation if persistent.
@@ -133,7 +133,7 @@ GPS device not detected.
 * Check GPS receiver connection.
 * Check serial device mapping.
 * Reboot and retest.
-* If the device remains unavailable, raise an FSE ticket for receiver or cabling investigation.
+* If the device remains unavailable, raise an engineering ticket for receiver or cabling investigation.
 
 ---
 
@@ -159,7 +159,7 @@ GPS process not running.
 ### Recommended Action
 
 * Restart the GPS service if supported.
-* Reboot the CCU.
+* Reboot the onboard system.
 * If the process repeatedly fails, escalate for software/service investigation.
 
 ---
@@ -201,7 +201,7 @@ GPS receiver not outputting NMEA data.
 * Verify the active GPS device.
 * Check receiver output directly.
 * Reboot and retest.
-* Raise an FSE ticket for receiver or antenna-path investigation if no NMEA data is present after recovery attempts.
+* Raise an engineering ticket for receiver or antenna-path investigation if no NMEA data is present after recovery attempts.
 
 ---
 
@@ -233,7 +233,7 @@ GPS receiver does not have a valid navigation fix and cannot see satellites.
 * Check antenna connections and cabling.
 * Check receiver health.
 * Reboot and retest.
-* Raise an FSE ticket if persistent.
+* Raise an engineering ticket if persistent.
 
 ---
 
@@ -416,10 +416,10 @@ Modem not detected.
 
 ### Recommended Action
 
-* Reboot the CCU.
+* Reboot the onboard system.
 * Recheck modem detection.
 * Check hardware seating and connections.
-* If still unavailable, raise an FSE ticket for modem investigation or replacement.
+* If still unavailable, raise an engineering ticket for modem investigation or replacement.
 
 ---
 
@@ -456,7 +456,7 @@ The modem is detected but has failed to register successfully with the mobile ne
 
 * Reset the WAN process.
 * Monitor for successful registration.
-* If NO PLMN returns after WAN restart or CCU reboot, raise an FSE ticket for modem/SIM investigation.
+* If NO PLMN returns after WAN restart or onboard system reboot, raise an engineering ticket for modem/SIM investigation.
 
 ---
 
@@ -488,8 +488,8 @@ The modem has registered with the mobile network but has not completed data-sess
 
 * Reset the WAN process.
 * Monitor for recovery.
-* Reboot the CCU if required.
-* If the fault reoccurs, raise an FSE ticket for modem investigation or replacement.
+* Reboot the onboard system if required.
+* If the fault reoccurs, raise an engineering ticket for modem investigation or replacement.
 
 ---
 
@@ -651,8 +651,8 @@ The modem has failed to progress cleanly through initialisation.
 ### Recommended Action
 
 * Reset the WAN process.
-* Reboot the CCU if required.
-* If the state repeatedly returns, raise an FSE ticket for modem investigation or replacement.
+* Reboot the onboard system if required.
+* If the state repeatedly returns, raise an engineering ticket for modem investigation or replacement.
 
 ---
 
@@ -685,7 +685,7 @@ A value of approximately `60000 ms` is treated as a failure condition rather tha
 
 * Reset the WAN process.
 * Monitor for normal RTT recovery.
-* If high latency returns, raise an FSE ticket for modem investigation or replacement.
+* If high latency returns, raise an engineering ticket for modem investigation or replacement.
 
 ---
 
@@ -746,7 +746,7 @@ Record confirmed findings so the fault library and diagnostic engine can be exte
 
 # 3. Offline / Connectivity Conditions
 
-## CCU Unreachable
+## Onboard System Unreachable
 
 ### Signature
 
@@ -758,7 +758,7 @@ or an SSH connection failure prevents diagnostic collection.
 
 ### Diagnosis
 
-Train or CCU unreachable at the time of the scan.
+Train or onboard system unreachable at the time of the scan.
 
 ### Important Note
 
@@ -767,16 +767,16 @@ This condition does **not automatically mean that the train itself is offline in
 Possible causes include:
 
 * Temporary VPN reachability issue
-* CCU changing network state
+* Onboard system changing network state
 * Slow response
 * Train communications unavailable
-* CCU offline
+* Onboard system offline
 * Routing/connectivity issue
 
 ### Recommended Action
 
 * Retry the scan.
-* If the unit repeatedly fails to respond, investigate train and CCU connectivity.
+* If the unit repeatedly fails to respond, investigate train and onboard system connectivity.
 
 ---
 
@@ -784,7 +784,7 @@ Possible causes include:
 
 ## Dynamic GPS Device Enumeration
 
-On 4600CCU platforms, Linux USB serial device numbering can change after reboot.
+On supported platforms, Linux USB serial device numbering can change after reboot.
 
 GPS devices must therefore not be assumed to remain on a fixed `/dev/ttyUSBx` path.
 
@@ -819,14 +819,9 @@ This prevents healthy WANs from being incorrectly classified as failed.
 
 The platform must evaluate WAN health against the appropriate fleet profile.
 
-Current expected WAN topology:
+Different supported fleets may have different expected active WAN interfaces.
 
-| Fleet       | Expected Active WANs |
-| ----------- | -------------------- |
-| GWR 165/166 | WAN1, WAN3           |
-| GWR 800/802 | WAN1, WAN2           |
-| XC 170      | WAN1, WAN2, WAN3     |
-| XC 220/221  | WAN1, WAN2, WAN3     |
+The diagnostic engine therefore uses the configured `active_wans` profile when determining WAN health.
 
 Inactive WAN positions defined by fleet design must not be treated as faults.
 

@@ -376,7 +376,7 @@ def save_timeout_csv_report(train_id, host, report_file=None):
             "",
             "",
             "Network connection timed out",
-            "Train unreachable or CCU offline",
+            "Train unreachable or onboard system offline",
             "",
         ])
 
@@ -397,6 +397,12 @@ def generate_combined_html_report(results, report_file):
         state = result.get("overall_state", "FAULT")
         if state in status_counts:
             status_counts[state] += 1
+
+    report_wans = sorted({
+        wan_number
+        for result in results
+        for wan_number in result.get("report_wans", [])
+    })
 
     rows = []
 
@@ -422,7 +428,7 @@ def generate_combined_html_report(results, report_file):
 
         wan_cells = []
 
-        for wan_number in [1, 2, 3]:
+        for wan_number in report_wans:
 
             wan = wan_lookup.get(wan_number)
 
@@ -469,6 +475,11 @@ def generate_combined_html_report(results, report_file):
             </tr>
             """
         )
+
+    wan_headers = "".join(
+        f"<th>WAN{wan_number}</th>"
+        for wan_number in report_wans
+    )
 
     html = f"""
     <!DOCTYPE html>
@@ -556,9 +567,7 @@ def generate_combined_html_report(results, report_file):
                     <th>Overall</th>
                     <th>GPS</th>
                     <th>WAN Health</th>
-                    <th>WAN1</th>
-                    <th>WAN2</th>
-                    <th>WAN3</th>
+                    {wan_headers}
                 </tr>
             </thead>
 

@@ -1,6 +1,6 @@
 # Project Notes
 
-This document records engineering discoveries, platform behaviours and implementation decisions identified while developing the Rail Network Diagnostics platform.
+This document records engineering discoveries, fleet behaviours and implementation decisions identified while developing the Rail Network Diagnostics platform.
 
 It is intended as a technical development reference rather than formal user documentation.
 
@@ -30,18 +30,22 @@ Diagnostics currently collect information relating to:
 
 # 2. Fleet Profiles
 
-Current fleet profiles:
+The platform supports multiple fleet configurations with differing onboard hardware, GPS interfaces and WAN topologies.
 
-| Fleet       | CCU / Platform | GPS Method          | Expected WANs    |
-| ----------- | -------------- | ------------------- | ---------------- |
-| GWR 165/166 | R3200CCU       | Fixed `/dev/ttyS1`  | WAN1, WAN3       |
-| GWR 800/802 | 4600CCU        | Automatic discovery | WAN1, WAN2       |
-| XC 170      | 4600CCU        | Automatic discovery | WAN1, WAN2, WAN3 |
-| XC 220/221  | 4600CCU        | Automatic discovery | WAN1, WAN2, WAN3 |
+For the purposes of this public repository, operational fleet identities and infrastructure mappings have been anonymised.
 
-Fleet-specific profiles are necessary because onboard hardware and WAN topology differ between fleets.
+| Profile | GPS Method          | WAN Configuration        |
+| ------- | ------------------- | ------------------------ |
+| Fleet A | Fixed serial device | Fleet-specific           |
+| Fleet B | Automatic discovery | Fleet-specific           |
+| Fleet C | Automatic discovery | Fleet-specific           |
+| Fleet D | Automatic discovery | Fleet-specific           |
+
+Fleet-specific profiles are necessary because onboard hardware and WAN topology differ between operational environments.
 
 A single universal hardware assumption would create false diagnostic failures.
+
+The public profiles demonstrate the configuration model used by the fleets without exposing operational fleet-to-hardware or fleet-to-network mappings.
 
 ---
 
@@ -51,19 +55,19 @@ A single universal hardware assumption would create false diagnostic failures.
 
 Initial development assumed GPS receivers could be accessed using known fixed Linux serial-device paths.
 
-This is valid on some older R3200CCU systems where GPS is available through:
+This is valid on some older supported systems where GPS is available through:
 
 ```text
 /dev/ttyS1
 ```
 
-Testing on 4600CCU platforms showed this assumption does not apply universally.
+Testing on newer supported platforms showed this assumption does not apply universally.
 
 ---
 
-## Dynamic USB Enumeration on 4600CCU
+## Dynamic USB Enumeration
 
-USB serial devices on 4600CCU systems are dynamically assigned during Linux boot.
+USB serial devices on some supported onboard systems are dynamically assigned during Linux boot.
 
 Observed GPS device paths have included:
 
@@ -98,9 +102,9 @@ This is significantly more reliable than relying on device numbering.
 
 ---
 
-## XC 220/221 GPS Discovery
+## Serial GPS Discovery
 
-Investigation of XC 220/221 systems identified the running GPS process and the serial device it had opened.
+Investigation of another supported platform identified the running GPS process and the serial device it had opened.
 
 Example process discovery:
 
@@ -115,15 +119,19 @@ Inspection of the GPS process file descriptors identified:
 /dev/ttyS6
 ```
 
-The wider lesson remains that the diagnostic platform should discover the active device from system state rather than rely solely on assumed hardware mappings.
+Although `/dev/ttyS6` was identified during live testing, the diagnostic platform continues to discover the active GPS device from system state rather than treating the observed device path as a permanent fleet mapping.
+
+This maintains a consistent discovery approach across supported platforms and avoids introducing fixed device assumptions where runtime discovery is available.
 
 ---
 
 # 4. WAN Runtime Environment
 
-Detailed modem and WAN runtime information is exposed through the unified communications subsystem.
+Detailed modem and WAN runtime information is exposed through the onboard communications subsystem.
 
-Important runtime locations include:
+During development, runtime data sources were identified that expose diagnostic information for individual WAN instances.
+
+Representative runtime locations include:
 
 ```text
 /var/local/unified/01
@@ -170,9 +178,9 @@ rank
 
 ---
 
-# 5. unified_sw_airprime Observations
+# 5. WAN State-Machine Observations
 
-Investigation of the onboard `unified_sw_airprime` component revealed useful WAN state-machine terminology.
+Investigation of the onboard WAN management components revealed useful state-machine terminology.
 
 Observed strings include:
 
@@ -181,12 +189,6 @@ STATE_INIT
 STATE_WAIT_DHCP
 STATE_NO_PLMN
 STATE_SHOW_LTE
-```
-
-Runtime binary:
-
-```text
-/usr/local/bin/unified_sw_airprime
 ```
 
 These states helped identify relationships between modem initialisation, mobile-network registration, DHCP negotiation and LTE session establishment.
@@ -212,7 +214,7 @@ Further live testing showed this was not reliable enough on its own.
 
 ## Missing Modem Metadata Does Not Always Mean Modem Failure
 
-During investigation of an XC 220/221 WAN, diagnostics initially reported:
+During investigation of a WAN on one supported platform, diagnostics initially reported:
 
 ```text
 Modem not detected
@@ -323,7 +325,7 @@ Relevant evidence includes:
 * Carrier Availability
 * RTT
 * Cellular technology
-* Fleet topology
+* Fleet-specific WAN expectations
 
 ---
 
@@ -341,7 +343,7 @@ dhcp_cal
 
 These conditions may indicate a modem session or DHCP state-machine problem rather than a simple mobile-network registration failure.
 
-Repeated occurrence following WAN reset or CCU reboot should therefore be treated differently from a transient network-registration issue.
+Repeated occurrence following WAN reset or onboard system reboot should therefore be treated differently from a transient network-registration issue.
 
 ---
 
@@ -365,39 +367,54 @@ Maintaining that distinction is important because the likely cause and engineeri
 
 # 12. Fleet WAN Topology
 
-Expected WAN configuration differs by fleet.
+Expected WAN configuration differs between supported fleets.
 
-## GWR 165/166
+The diagnostic platform therefore separates WAN interfaces that are available for diagnostic collection from those expected to be operational.
+
+## Example Multi-WAN Platform
+
+A representative multi-WAN configuration may expose four runtime WAN slots while only a subset are expected to participate in normal operation.
+
+For example:
 
 ```text
 WAN1 active
 WAN2 disabled by design
 WAN3 active
+WAN4 disabled by design
 ```
 
-## GWR 800/802
+The platform represents this distinction using two configuration values:
 
-```text
-WAN1 active
-WAN2 active
-WAN3 disabled by design
-```
+- `wan_slots` – WAN interfaces available for diagnostic collection.
+- `active_wans` – WAN interfaces expected to be operational and included in health assessment.
 
-## XC 170
+This allows diagnostic data to be collected from interfaces that exist within the underlying platform without incorrectly treating deliberately unused interfaces as faults.
 
-```text
-WAN1 active
-WAN2 active
-WAN3 active
-```
+## Dynamic WAN Collection
 
-## XC 220/221
+The WAN diagnostic collector gathers data dynamically using the configured `wan_slots` rather than assuming that every supported platform exposes the same number of WAN interfaces.
 
-```text
-WAN1 active
-WAN2 active
-WAN3 active
-```
+For the representative four-slot configuration:
+
+- WAN1-WAN4 are available for diagnostic collection.
+- Only the configured `active_wans` are included in normal operator-facing WAN output.
+- Interfaces disabled by design do not affect fleet health classification.
+- Combined Fleet Health reporting displays only the WAN interfaces expected to be operational.
+
+Other supported profiles may expose different numbers of WAN slots and different `active_wans` configurations.
+
+This allows the same diagnostic engine to support differing onboard network architectures without embedding those assumptions throughout the application.
+
+## Live Validation
+
+The separation between `wan_slots` and `active_wans` was validated against an operational fleet.
+
+Live testing confirmed that the diagnostic collector could inspect all configured WAN slots while operator-facing output remained limited to the interfaces expected to be active.
+
+The Combined Fleet Health Scan was also completed across the operational inventory, with deliberately unused WAN interfaces correctly excluded from health classification and reporting.
+
+This validated the separation between physical/runtime WAN availability (`wan_slots`) and expected operational WAN configuration (`active_wans`).
 
 A WAN that is intentionally unused must not be counted as a diagnostic failure.
 
@@ -409,7 +426,7 @@ This led to implementation of fleet-aware WAN profiles.
 
 ## Evidence Before Assumption
 
-The platform should derive health from the observed operational state of the train rather than rely on assumed hardware mappings or the presence of a single file.
+The platform should derive health from the observed operational state of the onboard system rather than rely on assumed hardware mappings or the presence of a single file.
 
 Examples:
 
@@ -510,7 +527,7 @@ GPS is healthy and all expected active WAN interfaces are available.
 
 ### DEGRADED
 
-The train remains operational, but a warning or partial WAN failure has been detected.
+The onboard system remains operational, but a warning or partial WAN failure has been detected.
 
 Examples include:
 
@@ -524,15 +541,15 @@ A GPS fault has been detected or no expected active WAN connectivity remains ava
 
 ### OFFLINE
 
-The onboard CCU cannot be reached sufficiently to complete the combined diagnostic assessment.
+The onboard system cannot be reached sufficiently to complete the combined diagnostic assessment.
 
-An unreachable CCU is classified as `OFFLINE` rather than attempting to infer GPS or WAN failure from missing evidence.
+An unreachable onboard system is classified as `OFFLINE` rather than attempting to infer GPS or WAN failure from missing evidence.
 
 ---
 
 ## WAN Health Calculation
 
-WAN health is calculated using only interfaces expected to be active for the selected fleet profile.
+WAN health is calculated using only interfaces expected to be active for the selected platform profile.
 
 Current logic:
 
@@ -587,108 +604,199 @@ Live testing will determine whether this remains the most useful classification 
 
 ---
 
-# 16. Application Architecture
+## 16. Phase 7 – Combined Fleet Health Validation
 
-Phase 7 refactored the original diagnostic application before introducing combined GPS and WAN health assessment.
+Phase 7 introduced the Combined Fleet Health Scan, bringing GPS and WAN diagnostics together into a single fleet-level health assessment.
 
-The project had developed primarily within `gps_diag.py`, which was responsible for fleet configuration, SSH communication, GPS diagnostics, WAN diagnostics, reporting and application workflow.
+The objective was to move the project beyond individual GPS and WAN diagnostic functions and provide a single operational view of each train, suitable for identifying healthy units, degraded services, confirmed faults and units that cannot currently be reached.
 
-As functionality increased, continuing to add features to the same script would make the diagnostic platform increasingly difficult to maintain and extend.
+### 16.1 Combined Health Workflow
 
-The application was therefore separated into dedicated modules while preserving existing diagnostic behaviour.
+The Combined Fleet Health Scan performs the following workflow for each train in the selected inventory profile:
 
-Current responsibilities are:
+1. Loads the train identifier and target address from the selected inventory.
+2. Connects to the onboard system using SSH.
+3. Collects GPS diagnostic data using the fleet-specific GPS configuration.
+4. Collects WAN diagnostic data using the fleet-specific WAN configuration.
+5. Classifies the GPS state.
+6. Classifies each relevant WAN state.
+7. Passes the GPS and WAN results to the combined health engine.
+8. Assigns an overall train health state.
+9. Adds the result to the combined fleet report.
 
-```text
-config/fleet_profiles.py
-    Fleet-specific hardware and WAN topology configuration
+The combined health engine uses four overall states:
 
-ssh_client.py
-    Reusable SSH communication
+- `HEALTHY` – GPS and expected WAN services are operating normally.
+- `DEGRADED` – The train remains operational, but one or more monitored services are not in their expected state.
+- `FAULT` – A confirmed diagnostic fault has been identified.
+- `OFFLINE` – The onboard system could not be reached or the required diagnostic data could not be collected due to a connection timeout.
 
-diagnostics/gps.py
-    GPS parsing and diagnostic classification
+This provides a higher-level operational view while retaining the detailed GPS and WAN diagnoses underneath the overall state.
 
-diagnostics/wan.py
-    WAN parsing and diagnostic classification
+### 16.2 Fleet-Specific Configuration
 
-diagnostics/health.py
-    Combined GPS/WAN health classification
+Fleet behaviour is defined through `config/fleet_profiles.py`.
 
-reporting/reports.py
-    CSV and HTML report generation
+This allows the diagnostic logic to account for differences between onboard hardware, GPS interfaces and WAN configurations without embedding fleet-specific behaviour throughout the main application.
 
-gps_diag.py
-    Diagnostic collection, workflow and application orchestration
-```
+For the purposes of the public repository, operational fleet identities and their associated hardware mappings are anonymised.
 
-## Collection vs Interpretation
+The configuration model supports four representative profiles:
 
-An important architectural decision was to separate collection of diagnostic evidence from interpretation of that evidence.
+- Fleet A
+- Fleet B
+- Fleet C
+- Fleet D
 
-Remote operations that interact directly with the onboard Linux system remain part of the collection/orchestration layer.
+Fleet-specific configuration can define:
+
+- Whether GPS uses a fixed serial device or automatic device discovery.
+- Which WAN slots are available for diagnostic collection.
+- Which WAN interfaces are expected to be operational.
+- Which interfaces should contribute to health classification and operator-facing reporting.
+
+Observed GPS device paths are retained as engineering findings where useful, but are not treated as permanent fleet mappings.
+
+This separation allows the diagnostic engine to support differing onboard architectures while keeping operational configuration separate from the core diagnostic logic.
+
+### 16.3 Fleet-Aware WAN Configuration
+
+Live validation identified an important distinction between WAN interfaces that are available for diagnostic collection and WAN interfaces that are operationally expected for a particular fleet.
+
+The configuration model therefore separates:
+
+- `wan_slots` – WAN interfaces available to the diagnostic collector.
+- `active_wans` – WAN interfaces expected to participate in normal operation.
+
+This allows diagnostic data to be collected from all configured WAN slots while limiting operator-facing reporting and combined health assessment to the interfaces expected to be active.
+
+Interfaces that are deliberately unused do not incorrectly degrade the overall health state.
+
+This preserves diagnostic visibility of the underlying WAN configuration while allowing the same diagnostic engine to support platforms with different network topologies.
+
+### 16.4 Timeout Handling
+
+Connection failures are handled explicitly by the combined health workflow.
 
 Examples include:
 
-* SSH command execution
-* GPS device discovery
-* Process inspection
-* Reading runtime files
-* WAN evidence collection
+- `GPS CONNECTION TIMEOUT`
+- `WAN CONNECTION TIMEOUT`
 
-Functions that interpret already-collected evidence belong in the diagnostic modules.
+Where the onboard system cannot be reached and diagnostic collection cannot be completed, the overall train state is classified as:
 
-Examples include:
+`OFFLINE`
 
-* GPRMC parsing
-* Satellite parsing
-* GPS fault classification
-* WAN state parsing
-* WAN fault classification
-* Combined health classification
+This separates connectivity failures from confirmed GPS or WAN faults and prevents an unreachable train from being incorrectly reported as a diagnostic hardware or service failure.
 
-This separation should allow future diagnostics to be developed and tested without continually increasing the responsibilities of the main application script.
+### 16.5 Combined HTML Reporting
 
----
+Phase 7 introduced combined HTML reporting through:
 
-## Refactor Validation
+`generate_combined_html_report()`
 
-The refactor was intentionally behaviour-preserving.
+The report provides a fleet-level summary containing:
 
-Existing healthy and faulty offline GPS samples were used repeatedly during development to confirm that moving functionality between modules did not alter established diagnostic results.
+- Train ID
+- IP address
+- Overall health state
+- GPS state and diagnosis
+- WAN state and diagnosis
+- Per-WAN diagnostic information
 
-Validation during Phase 7 included:
+The HTML output is intended to provide a quick operational overview while still exposing enough diagnostic information to support further investigation.
 
-* Python `py_compile` checks
-* VS Code/Pylance static analysis
-* Existing GPS regression samples
-* Direct GPS/WAN health-classification tests
-* Combined health-classification tests
-* Simulated combined HTML reporting across HEALTHY, DEGRADED, FAULT and OFFLINE states
+An initial combined health report was shared with operational support users for feedback.
 
-Pylance identified unresolved WAN diagnostic dependencies within `reporting/reports.py` that were not identified by `py_compile`.
+Feedback was positive, confirming that the report and diagnostic capability would be useful for day-to-day fault investigation.
 
-This reinforced the use of both static analysis and runtime/compilation checks when validating future refactoring work.
+### 16.6 Live Fleet Validation
 
-Final live validation against operational systems is required before the Phase 7 implementation is considered fully validated.
+Phase 7 was live validated against an operational fleet.
+
+The full Combined Fleet Health Scan completed successfully across the selected inventory.
+
+Validation confirmed that:
+
+- Fleet inventory processing operates correctly.
+- Live SSH diagnostic collection operates correctly.
+- GPS results are collected and classified correctly.
+- WAN results are collected and classified correctly.
+- Fleet-specific WAN expectations are respected.
+- Interfaces disabled by design do not incorrectly affect health classification.
+- Combined health states are generated correctly.
+- Combined HTML reporting completes successfully.
+- The resulting report provides a usable fleet-level operational view.
+
+The successful fleet scan completed the live validation requirement for Phase 7.
+
+### 16.7 Operational Deployment Considerations
+
+Following feedback from operational support users, a future development requirement is to make the diagnostic platform accessible without requiring users to run the Python application manually from the command line.
+
+Any future interface must preserve secure individual authentication and avoid introducing shared infrastructure credentials.
+
+Potential future development includes:
+
+- A simple local web interface for launching fleet scans.
+- Fleet selection from the user interface.
+- Secure user authentication and access control.
+- Display of scan progress and completion status.
+- Direct access to generated HTML reports.
+- Local deployment to avoid unnecessary cloud hosting costs.
+- Packaging the application so that installation and operation require minimal technical setup.
+
+This would retain the existing diagnostic engine while placing a simpler operational interface in front of it.
+
+### 16.8 Phase 7 Outcome
+
+Phase 7 successfully moved the project from separate diagnostic functions toward a structured fleet health platform.
+
+The project now contains:
+
+- Modular GPS diagnostic logic.
+- Modular WAN diagnostic logic.
+- Centralised fleet configuration.
+- Reusable SSH connectivity.
+- Reusable reporting functions.
+- Combined GPS and WAN health assessment.
+- Fleet-specific service expectations.
+- Explicit timeout and offline handling.
+- Combined HTML fleet reporting.
+- Successful live fleet validation.
+
+The Combined Fleet Health Scan has also received positive initial feedback from its intended operational users.
+
+Phase 7 is therefore considered development complete and live validated.
+
+Further work will focus on operational accessibility, automation, historical analysis and continued expansion of fleet support.
 
 ---
 
 # 17. Future Engineering Notes
 
+With Phase 7 complete, future development can build on the combined fleet health platform rather than adding further isolated diagnostic functions.
+
 Planned areas for future investigation include:
 
-* Combined GPS and WAN health scanning
-* Severity-based train-health states
 * Access point diagnostics
 * Managed switch diagnostics
 * Additional onboard service monitoring
-* Historical fault recurrence
-* Automated remediation
-* Scheduled scanning
-* Ticketing integration
+* Historical fault recurrence and trend analysis
 * Database-backed diagnostic history
+* Scheduled and automated fleet scanning
+* Automated remediation where appropriate and safe
+* Ticketing and Service Desk integration
 * Interactive dashboarding
-* Cloud-hosted execution
+* Operational web interface for Service Desk users
+* Continued expansion and validation across supported fleets
+* Telemetry discovery, including investigation of existing MQTT/Mosquitto services and data flows
+* Fleet simulator development for safe offline testing of diagnostic and telemetry behaviour
+* Investigation of real-time fleet status ingestion as a foundation for a future FleetManager-style operational view
+* Evaluation of local and cloud-hosted deployment options as operational requirements develop
 
-Significant discoveries made while implementing these features should be recorded here before they are distilled into permanent documentation or fault-classification logic.
+The immediate development priority is to understand the telemetry already produced by the onboard systems and determine how that information can complement the existing SSH-based diagnostic workflow.
+
+SSH diagnostics should remain the authoritative method for targeted live investigation, while telemetry could provide continuous fleet visibility, historical data and automated identification of units requiring deeper diagnostic checks.
+
+Longer term, these capabilities could allow the platform to evolve from an engineer-triggered diagnostic tool into a broader fleet monitoring and diagnostics platform, while retaining the evidence-based diagnostic approach developed throughout the project.

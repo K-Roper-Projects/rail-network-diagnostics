@@ -77,25 +77,25 @@ def get_gps_recommendation(results, satellites):
     if gps_device == "NOT_DETECTED" or "GPS_DEVICE_NOT_DETECTED" in tty:
         return (
             "GPS device not detected",
-            "Check GPS receiver connection, serial device mapping, and CCU hardware. If the device remains missing after reboot, raise FSE ticket for GPS receiver or cabling investigation."
+            "Check GPS receiver connection, serial device mapping, and onboard system hardware. If the device remains missing after reboot, escalate for GPS receiver or cabling investigation."
         )
 
     if not gps_process.strip():
         return (
             "GPS process not running",
-            "Restart GPS service or reboot CCU. If the GPS process repeatedly fails to start, escalate for software/service investigation."
+            "Restart GPS service or reboot onboard system. If the GPS process repeatedly fails to start, escalate for software/service investigation."
         )
 
     if not contains_nmea(nmea):
         return (
             "GPS receiver not outputting NMEA",
-            "Check GPS receiver output and serial port assignment. If no NMEA is present after reboot, raise FSE ticket for GPS receiver or antenna path investigation."
+            "Check GPS receiver output and serial port assignment. If no NMEA is present after reboot, escalate for GPS receiver or antenna path investigation."
         )
 
     if satellites == 0:
         return (
             "GPS has no satellites visible",
-            "Check GPS antenna, antenna cabling, receiver placement, and possible obstruction. Raise FSE ticket if persistent."
+            "Check GPS antenna, antenna cabling, receiver placement, and possible obstruction. Escalate if persistent."
         )
 
     if (
@@ -129,19 +129,19 @@ def get_gps_recommendation(results, satellites):
         if not mqtt_process.strip():
             return (
                 "GPS operational with service warning",
-                "GPS receiver has a valid fix, but MQTT is not running. Restart MQTT process or reboot CCU if GPS data is not being consumed correctly."
+                "GPS receiver has a valid fix, but MQTT is not running. Restart MQTT process or reboot onboard system if GPS data is not being consumed correctly."
             )
 
         if "broadcast_unicast_gps.py" not in broadcast_process:
             return (
                 "GPS operational with service warning",
-                "GPS receiver has a valid fix, but the GPS broadcast process is not running. Restart GPS broadcast process or reboot CCU if downstream systems are not receiving GPS data."
+                "GPS receiver has a valid fix, but the GPS broadcast process is not running. Restart GPS broadcast process or reboot onboard system if downstream systems are not receiving GPS data."
             )
 
         if "br0.105" not in vlan105:
             return (
                 "GPS operational with network warning",
-                "GPS receiver has a valid fix, but VLAN105 is missing. Check CCU network/VLAN configuration if GPS data is not reaching downstream systems."
+                "GPS receiver has a valid fix, but VLAN105 is missing. Check onboard system network/VLAN configuration if GPS data is not reaching downstream systems."
             )
 
         return (

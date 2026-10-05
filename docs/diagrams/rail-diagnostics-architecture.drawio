@@ -1,6 +1,6 @@
 <mxfile host="Electron">
   <diagram name="Page-1" id="zY-jgPVo3I8jqdkH4-Zs">
-    <mxGraphModel dx="2020" dy="2370" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+    <mxGraphModel dx="1571" dy="2103" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -88,7 +88,7 @@
         <mxCell id="-Hfrz96kr1OFzJNydPMh-12" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="&lt;font style=&quot;font-size: 14px;&quot;&gt;Rail Network Diagnostics Platform&lt;/font&gt;" vertex="1">
           <mxGeometry height="60" width="250" x="90" y="-20" as="geometry" />
         </mxCell>
-        <mxCell id="-Hfrz96kr1OFzJNydPMh-14" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="ONBOARD LINUX CCU" vertex="1">
+        <mxCell id="-Hfrz96kr1OFzJNydPMh-14" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="ONBOARD LINUX SYSTEM" vertex="1">
           <mxGeometry height="50" width="150" x="300" y="330" as="geometry" />
         </mxCell>
       </root>

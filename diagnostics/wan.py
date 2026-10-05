@@ -55,7 +55,7 @@ def get_wan_recommendation(wan_number, status, results):
     if latency_ms >= 60000:
         return (
             "WAN attached but failing latency check",
-            "Reset WAN process and monitor. If high latency returns, raise FSE ticket for modem investigation or replacement."
+            "Reset WAN process and monitor. If high latency returns, escalate for modem investigation or replacement."
         )
 
     # Trust operational loadbalance evidence before missing modem metadata.
@@ -91,7 +91,7 @@ def get_wan_recommendation(wan_number, status, results):
     ):
         return (
             "Network registration failure - NO PLMN",
-            "Reset WAN process and monitor. If NO PLMN reoccurs after WAN process restart or train reboot, raise FSE ticket for modem or SIM investigation."
+            "Reset WAN process and monitor. If NO PLMN reoccurs after WAN process restart or train reboot, escalate for modem or SIM investigation."
         )
 
     if (
@@ -100,7 +100,7 @@ def get_wan_recommendation(wan_number, status, results):
     ):
         return (
             "Modem stuck during power-on initialisation",
-            "Reset WAN process or reboot CCU. If the state returns, raise FSE ticket for modem investigation or replacement."
+            "Reset WAN process reboot onboard system. If the state returns, escalate for modem investigation or replacement."
         )
 
     if (
@@ -110,7 +110,7 @@ def get_wan_recommendation(wan_number, status, results):
     ):
         return (
             "WAN INIT - attach/interface bring-up failure",
-            "Reset WAN process and monitor. If the fault reoccurs after WAN process restart or train reboot, raise FSE ticket for modem replacement."
+            "Reset WAN process and monitor. If the fault reoccurs after WAN process restart or train reboot, escalate for modem replacement."
         )
     if (
         "NO LEASE" in state.upper()
@@ -144,13 +144,13 @@ def get_wan_recommendation(wan_number, status, results):
     ):
         return (
             "Modem not detected",
-            "Reboot CCU and recheck modem detection. If still not detected, raise FSE ticket for modem replacement."
+            "Reboot onboard system and recheck modem detection. If still not detected, escalate for modem replacement."
         )
 
     if interface == "" and device == "" and loadbalance_interface == "":
         return (
             "WAN unavailable - no active interface",
-            "Reset WAN process and monitor. If interface remains unavailable, raise to 2nd Line or FSE for modem investigation."
+            "Reset WAN process and monitor. If interface remains unavailable, escalate for modem investigation."
         )
 
     return (

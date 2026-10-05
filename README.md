@@ -99,15 +99,12 @@ This provides engineers with both a high-level view of fleet health and the unde
 
 One of the early assumptions in the project was that GPS receivers could be accessed using fixed Linux serial-device paths.
 
-Testing across 4600CCU platforms showed that USB serial devices are **dynamically assigned during system boot**, meaning a GPS receiver could move between device paths after a reboot.
+Testing across supported fleets showed that USB serial devices are **dynamically assigned during system boot**, meaning a GPS receiver could move between device paths after a reboot.
 
 For example:
 
 ```text
-/dev/ttyUSB3
-/dev/ttyUSB6
-/dev/ttyUSB7
-/dev/ttyUSB9
+/dev/ttyUSB<n>
 ```
 
 Hardcoding a serial device therefore created unreliable diagnostics.
@@ -149,7 +146,7 @@ The supported rail fleets do not share identical hardware or network configurati
 
 Differences include:
 
-* CCU hardware generation
+* Hardware generation
 * GPS device behaviour
 * modem types
 * number of active WAN interfaces
@@ -157,9 +154,15 @@ Differences include:
 
 A single fixed diagnostic profile would therefore generate false failures.
 
-Fleet-aware profiles were introduced so that the diagnostic engine understands which hardware and interfaces are expected for each platform.
+Fleet-aware profiles were introduced so that the diagnostic engine understands which hardware and interfaces are expected for each fleet.
 
 This allows one diagnostic platform to assess multiple fleets while accounting for legitimate differences in system architecture.
+
+The fleet configuration also separates WAN interfaces that are available for diagnostic collection from those expected to be operational.
+
+For example, a supported fleet may expose multiple WAN runtime slots, allowing all available interfaces to be inspected during diagnostics. Fleet configuration defines which WAN interfaces are expected to be active, while deliberately unused interfaces are excluded from normal health assessment and operator-facing reporting.
+
+This allows the platform to retain diagnostic visibility of the underlying hardware without incorrectly treating deliberately unused WAN interfaces as faults.
 
 ### Combined Fleet Health Assessment
 
@@ -183,12 +186,12 @@ Combined results are presented in an HTML fleet health report containing the ove
 ## Example Diagnostic Output
 
 ```text
-GPS Diagnostic Report - TRAIN001
+GPS Diagnostic Report - EXAMPLE
 
 SERVICE CHECKS
 ----------------------------------------
 GPS Device Present   : True
-GPS Device Used      : /dev/ttyUSB3
+GPS Device Used      : /dev/ttyUSB<n>
 GPS Process Running  : True
 MQTT Running         : True
 Broadcast Running    : False
@@ -197,8 +200,8 @@ VLAN105 Present      : True
 GPS STATUS
 ----------------------------------------
 GPRMC Status         : A
-UTC Time             : 061522.000
-Satellites Visible   : 20
+UTC Time             : <example UTC>
+Satellites Visible   : <example count>
 
 ASSESSMENT
 ----------------------------------------
@@ -253,25 +256,25 @@ The fault library continues to evolve as diagnostic behaviour is compared agains
 
 ---
 
-## Supported Platforms
+## Supported Fleets
 
 ### Fleet & Hardware Profiles
 
-| Fleet       | Hardware Platform | GPS Device Method           |
-| ----------- | ----------------- | --------------------------- |
-| GWR 165/166 | R3200CCU          | Fixed device (`/dev/ttyS1`) |
-| GWR 800/802 | 4600CCU           | Automatic device discovery  |
-| XC 170      | 4600CCU           | Automatic device discovery  |
-| XC 220/221  | 4600CCU           | Automatic device discovery  |
+| Fleet | Hardware Profile | GPS Device Method |
+| -------- | ---------------- | ----------------- |
+| Fleet A | Hardware Profile A | Fixed device mapping |
+| Fleet B | Hardware Profile B | Automatic device discovery |
+| Fleet C | Hardware Profile C | Automatic device discovery |
+| Fleet D | Hardware Profile D | Automatic device discovery |
 
 ### WAN Topologies
 
-| Fleet       | Expected Active WANs |
-| ----------- | -------------------- |
-| GWR 165/166 | WAN1, WAN3           |
-| GWR 800/802 | WAN1, WAN2           |
-| XC 170      | WAN1, WAN2, WAN3     |
-| XC 220/221  | WAN1, WAN2, WAN3     |
+| Fleet | Expected Active WANs |
+| ----- | -------------------- |
+| Fleet A | Fleet-defined |
+| Fleet B | Fleet-defined |
+| Fleet C | Fleet-defined |
+| Fleet D | Fleet-defined |
 
 ### Modem Support
 
@@ -299,7 +302,7 @@ Developed remote GPS health checking, service validation and initial fault asses
 
 ### Phase 2 — Multi-Fleet & Dynamic Hardware Support
 
-Extended diagnostics across differing CCU platforms and introduced automatic GPS device discovery after identifying dynamic Linux USB enumeration.
+Extended diagnostics across differing hardware platforms and introduced automatic GPS device discovery after identifying dynamic Linux USB enumeration.
 
 ### Phase 3 — Fleet Automation
 

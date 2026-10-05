@@ -182,134 +182,54 @@ def collect_wan_diagnostics(
     username,
     key_file,
     passphrase,
+    profile,
 ):
     results = {}
 
-    command = r"""
-    echo
-    echo "### ls_unified ###"
-    /usr/local/bin/ls_unified 2>/dev/null
-    echo
-    echo "### wan1_modem_details ###"
-    cat /var/local/unified/01/modem-details 2>/dev/null
-    echo
-    echo "### wan1_firmware ###"
-    cat /var/local/unified/01/modem-firmware 2>/dev/null
-    echo
-    echo "### wan1_cell_id ###"
-    cat /var/local/unified/01/cell-id 2>/dev/null
-    echo
-    echo "### wan1_loadbalance ###"
-    cat /var/local/loadbalance/wans/wan1 2>/dev/null
-    echo
-    echo "### wan1_state ###"
-    cat /var/local/unified/01/state 2>/dev/null
-    echo
-    echo "### wan1_attach_state ###"
-    cat /var/local/unified/01/attach-state 2>/dev/null
-    echo
-    echo "### wan1_registration_status ###"
-    cat /var/local/unified/01/registration-status 2>/dev/null
-    echo
-    echo "### wan1_operator ###"
-    cat /var/local/unified/01/current-operator 2>/dev/null
-    echo
-    echo "### wan1_tech ###"
-    cat /var/local/unified/01/tech 2>/dev/null
-    echo
-    echo "### wan1_tech_details ###"
-    cat /var/local/unified/01/tech-details 2>/dev/null
-    echo
-    echo "### wan1_ifname ###"
-    cat /var/local/unified/01/ifname 2>/dev/null
-    echo
-    echo "### wan1_dev ###"
-    cat /var/local/unified/01/dev 2>/dev/null
-    echo
-    echo "### wan1_ca ###"
-    cat /var/local/unified/01/ca 2>/dev/null
-    echo
-    
-    echo "### wan2_modem_details ###"
-    cat /var/local/unified/02/modem-details 2>/dev/null
-    echo
-    echo "### wan2_firmware ###"
-    cat /var/local/unified/02/modem-firmware 2>/dev/null
-    echo
-    echo "### wan2_cell_id ###"
-    cat /var/local/unified/02/cell-id 2>/dev/null
-    echo
-    echo "### wan2_loadbalance ###"
-    cat /var/local/loadbalance/wans/wan2 2>/dev/null
-    echo
-    echo "### wan2_state ###"
-    cat /var/local/unified/02/state 2>/dev/null
-    echo
-    echo "### wan2_attach_state ###"
-    cat /var/local/unified/02/attach-state 2>/dev/null
-    echo
-    echo "### wan2_registration_status ###"
-    cat /var/local/unified/02/registration-status 2>/dev/null
-    echo
-    echo "### wan2_operator ###"
-    cat /var/local/unified/02/current-operator 2>/dev/null
-    echo
-    echo "### wan2_tech ###"
-    cat /var/local/unified/02/tech 2>/dev/null
-    echo
-    echo "### wan2_tech_details ###"
-    cat /var/local/unified/02/tech-details 2>/dev/null
-    echo
-    echo "### wan2_ifname ###"
-    cat /var/local/unified/02/ifname 2>/dev/null
-    echo
-    echo "### wan2_dev ###"
-    cat /var/local/unified/02/dev 2>/dev/null
-    echo
-    echo "### wan2_ca ###"
-    cat /var/local/unified/02/ca 2>/dev/null
-    echo
+    command_parts = [
+        'echo',
+        'echo "### ls_unified ###"',
+        '/usr/local/bin/ls_unified 2>/dev/null',
+    ]
 
-    echo "### wan3_modem_details ###"
-    cat /var/local/unified/03/modem-details 2>/dev/null
-    echo
-    echo "### wan3_firmware ###"
-    cat /var/local/unified/03/modem-firmware 2>/dev/null
-    echo
-    echo "### wan3_cell_id ###"
-    cat /var/local/unified/03/cell-id 2>/dev/null
-    echo
-    echo "### wan3_loadbalance ###"
-    cat /var/local/loadbalance/wans/wan3 2>/dev/null
-    echo
-    echo "### wan3_state ###"
-    cat /var/local/unified/03/state 2>/dev/null
-    echo
-    echo "### wan3_attach_state ###"
-    cat /var/local/unified/03/attach-state 2>/dev/null
-    echo
-    echo "### wan3_registration_status ###"
-    cat /var/local/unified/03/registration-status 2>/dev/null
-    echo
-    echo "### wan3_operator ###"
-    cat /var/local/unified/03/current-operator 2>/dev/null
-    echo
-    echo "### wan3_tech ###"
-    cat /var/local/unified/03/tech 2>/dev/null
-    echo
-    echo "### wan3_tech_details ###"
-    cat /var/local/unified/03/tech-details 2>/dev/null
-    echo
-    echo "### wan3_ifname ###"
-    cat /var/local/unified/03/ifname 2>/dev/null
-    echo
-    echo "### wan3_dev ###"
-    cat /var/local/unified/03/dev 2>/dev/null
-    echo
-    echo "### wan3_ca ###"
-    cat /var/local/unified/03/ca 2>/dev/null
-    echo
-    """
+    wan_files = {
+        "modem_details": "modem-details",
+        "firmware": "modem-firmware",
+        "cell_id": "cell-id",
+        "state": "state",
+        "attach_state": "attach-state",
+        "registration_status": "registration-status",
+        "operator": "current-operator",
+        "tech": "tech",
+        "tech_details": "tech-details",
+        "ifname": "ifname",
+        "dev": "dev",
+        "ca": "ca",
+    }
+
+    for wan_slot in profile["wan_slots"]:
+        wan_number = int(wan_slot)
+
+        for result_name, file_name in wan_files.items():
+            command_parts.extend([
+                "echo",
+                f'echo "### wan{wan_number}_{result_name} ###"',
+                (
+                    f"cat /var/local/unified/{wan_slot}/{file_name} "
+                    "2>/dev/null"
+                ),
+            ])
+
+        command_parts.extend([
+            "echo",
+            f'echo "### wan{wan_number}_loadbalance ###"',
+            (
+                f"cat /var/local/loadbalance/wans/wan{wan_number} "
+                "2>/dev/null"
+            ),
+        ])
+
+    command = "\n".join(command_parts)
 
     output = run_ssh_command(
         host,
@@ -342,7 +262,8 @@ def collect_wan_diagnostics(
 
     expected_keys = ["ls_unified"]
 
-    for wan in [1, 2, 3]:
+    for wan_slot in profile["wan_slots"]:
+        wan = int(wan_slot)
         expected_keys.extend([
             f"wan{wan}_modem_details",
             f"wan{wan}_firmware",
@@ -477,111 +398,80 @@ def print_wan_report(train_id, results, train_profile):
     print("-" * 40)
     print(results.get("ls_unified", "No ls_unified output"))
 
-    wan1 = parse_wan_loadbalance(
-    results["wan1_loadbalance"]
-)
+    for wan_slot in train_profile["active_wans"]:
+        wan_number = int(wan_slot)
 
-    wan1_result = get_wan_result(
-        1,
-        results,
-        train_profile,
-    )
+        wan = parse_wan_loadbalance(
+            results[f"wan{wan_number}_loadbalance"]
+        )
 
-    wan1_status = wan1_result["status"]
-    wan1_diagnosis = wan1_result["diagnosis"]
-    wan1_action = wan1_result["next_steps"]
-    
-    print("\nWAN 1")
-    print("-" * 40)
+        wan_result = get_wan_result(
+            wan_number,
+            results,
+            train_profile,
+        )
 
-    print(f"Modem State   : {results.get('wan1_state', '')}")
-    print(f"Attach State  : {results.get('wan1_attach_state', '')}")
-    print(f"Registration  : {results.get('wan1_registration_status', '')}")
-    print(f"Operator      : {results.get('wan1_operator', '')}")
-    print(f"Technology    : {results.get('wan1_tech', '')}")
-    print(f"Tech Details  : {results.get('wan1_tech_details', '')}")
-    print(f"Unified IF    : {results.get('wan1_ifname', '')}")
-    print(f"Device        : {results.get('wan1_dev', '')}")
-    print(f"CA State      : {results.get('wan1_ca', '')}")
-    print(f"Status        : {wan1_status}")
-    print(f"Interface     : {wan1['interface']}")
-    print(f"Latency (RTT) : {wan1['rtt']} ms")
-    print(f"Serving Cell  : {results['wan1_cell_id']}")
-    print(f"Modem         : {results['wan1_modem_details']}")
-    print(f"Firmware      : {results['wan1_firmware']}")
-    print("\nDiagnosis")
-    print("-" * 40)
-    print(f"Diagnosis     : {wan1_diagnosis}")
-    print(f"Next Steps    : {wan1_action}")
+        print(f"\nWAN {wan_number}")
+        print("-" * 40)
 
-    wan2 = parse_wan_loadbalance(
-    results["wan2_loadbalance"]
-    )
+        print(
+            f"Modem State   : "
+            f"{results.get(f'wan{wan_number}_state', '')}"
+        )
+        print(
+            f"Attach State  : "
+            f"{results.get(f'wan{wan_number}_attach_state', '')}"
+        )
+        print(
+            f"Registration  : "
+            f"{results.get(f'wan{wan_number}_registration_status', '')}"
+        )
+        print(
+            f"Operator      : "
+            f"{results.get(f'wan{wan_number}_operator', '')}"
+        )
+        print(
+            f"Technology    : "
+            f"{results.get(f'wan{wan_number}_tech', '')}"
+        )
+        print(
+            f"Tech Details  : "
+            f"{results.get(f'wan{wan_number}_tech_details', '')}"
+        )
+        print(
+            f"Unified IF    : "
+            f"{results.get(f'wan{wan_number}_ifname', '')}"
+        )
+        print(
+            f"Device        : "
+            f"{results.get(f'wan{wan_number}_dev', '')}"
+        )
+        print(
+            f"CA State      : "
+            f"{results.get(f'wan{wan_number}_ca', '')}"
+        )
+        print(f"Status        : {wan_result['status']}")
+        print(f"Interface     : {wan['interface']}")
+        print(f"Latency (RTT) : {wan['rtt']} ms")
+        print(
+            f"Serving Cell  : "
+            f"{results.get(f'wan{wan_number}_cell_id', '')}"
+        )
+        print(
+            f"Modem         : "
+            f"{results.get(f'wan{wan_number}_modem_details', '')}"
+        )
+        print(
+            f"Firmware      : "
+            f"{results.get(f'wan{wan_number}_firmware', '')}"
+        )
 
-    wan2_result = get_wan_result(
-        2,
-        results,
-        train_profile,
-    )
+        print("\nDiagnosis")
+        print("-" * 40)
+        print(f"Diagnosis     : {wan_result['diagnosis']}")
+        print(f"Next Steps    : {wan_result['next_steps']}")
 
-    wan2_status = wan2_result["status"]
-    wan2_diagnosis = wan2_result["diagnosis"]
-    wan2_action = wan2_result["next_steps"]
-
-    print("\nWAN 2")
-    print("-" * 40)
-
-    print(f"Modem State   : {results.get('wan2_state', '')}")
-    print(f"Attach State  : {results.get('wan2_attach_state', '')}")
-    print(f"Registration  : {results.get('wan2_registration_status', '')}")
-    print(f"Operator      : {results.get('wan2_operator', '')}")
-    print(f"Technology    : {results.get('wan2_tech', '')}")
-    print(f"Tech Details  : {results.get('wan2_tech_details', '')}")
-    print(f"Unified IF    : {results.get('wan2_ifname', '')}")
-    print(f"Device        : {results.get('wan2_dev', '')}")
-    print(f"CA State      : {results.get('wan2_ca', '')}")
-    print(f"Status        : {wan2_status}")
-    print(f"Interface     : {wan2['interface']}")
-    print(f"Latency (RTT) : {wan2['rtt']} ms")
-    print(f"Serving Cell  : {results['wan2_cell_id']}")
-    print(f"Modem         : {results['wan2_modem_details']}")
-    print(f"Firmware      : {results['wan2_firmware']}")
-    print("\nDiagnosis")
-    print("-" * 40)
-    print(f"Diagnosis     : {wan2_diagnosis}")
-    print(f"Next Steps    : {wan2_action}")
-
-    wan3 = parse_wan_loadbalance(
-    results["wan3_loadbalance"]
-    )
-
-    wan3_result = get_wan_result(
-        3,
-        results,
-        train_profile,
-    )
-
-    wan3_status = wan3_result["status"]
-    wan3_diagnosis = wan3_result["diagnosis"]
-    wan3_action = wan3_result["next_steps"]
-
-    print("\nWAN 3")
-    print("-" * 40)
-
-    print(f"Modem State   : {results.get('wan3_state', '')}")
-    print(f"Attach State  : {results.get('wan3_attach_state', '')}")
-    print(f"Registration  : {results.get('wan3_registration_status', '')}")
-    print(f"Unified IF    : {results.get('wan3_ifname', '')}")
-    print(f"Device        : {results.get('wan3_dev', '')}")
-    print(f"CA State      : {results.get('wan3_ca', '')}") 
-    print(f"Status        : {wan3_status}")
-    print(f"Interface     : {wan3['interface']}")
-    print("\nDiagnosis")
-    print("-" * 40)
-    print(f"Diagnosis     : {wan3_diagnosis}")
-    print(f"Next Steps    : {wan3_action}")
-
-    print("\n" + "=" * 80)   
+    print("\n" + "=" * 80)
 
 def save_csv_report(train_id, host, results, satellites, diagnosis, likely_cause):
     reports_dir = Path("reports")
@@ -661,7 +551,7 @@ def diagnose_from_files(gprmc_file, nmea_file=None):
 
 def diagnose_live_train():
     train_id = input("Train ID: ")
-    host = input("CCU IP address: ")
+    host = input("Onboard system IP address: ")
     username = SSH_USERNAME
     key_file = SSH_KEY_PATH
     passphrase = getpass("SSH key passphrase: ")
@@ -721,7 +611,7 @@ def diagnose_live_train():
 def diagnose_wan_live():
 
     train_id = input("Train ID: ")
-    host = input("CCU IP address: ")
+    host = input("Onboard system IP address: ")
     username = SSH_USERNAME
     key_file = SSH_KEY_PATH
     passphrase = getpass("SSH key passphrase: ")
@@ -736,6 +626,7 @@ def diagnose_wan_live():
         username,
         key_file,
         passphrase,
+        profile,
     )
 
     print_wan_report(
@@ -902,6 +793,7 @@ def diagnose_wan_fleet():
                 username,
                 key_file,
                 passphrase,
+                train_profile,
             )
 
             if results.get("ls_unified") == "CONNECTION_TIMEOUT":
@@ -912,6 +804,7 @@ def diagnose_wan_fleet():
                     username,
                     key_file,
                     passphrase,
+                    train_profile,
                 )
 
                 if results.get("ls_unified") == "CONNECTION_TIMEOUT":
@@ -943,7 +836,8 @@ def diagnose_wan_fleet():
                 "overall_status": "HEALTHY",
             }
 
-            for wan_number in [1, 2, 3]:
+            for wan_slot in train_profile["wan_slots"]:
+                wan_number = int(wan_slot)
 
                 wan_result = get_wan_result(
                     wan_number,
@@ -1123,6 +1017,10 @@ def diagnose_combined_fleet():
                     "gps_diagnosis": "Train unreachable",
                     "wan_state": "UNKNOWN",
                     "wan_results": [],
+                    "report_wans": [
+                        int(wan)
+                        for wan in train_profile["active_wans"]
+                    ],
                     "overall_state": overall_state,
                 })
                 offline_count += 1
@@ -1147,6 +1045,10 @@ def diagnose_combined_fleet():
                     "gps_diagnosis": "SSH connection failed",
                     "wan_state": "UNKNOWN",
                     "wan_results": [],
+                    "report_wans": [
+                        int(wan)
+                        for wan in train_profile["active_wans"]
+                    ],
                     "overall_state": overall_state,
                 })
 
@@ -1177,6 +1079,7 @@ def diagnose_combined_fleet():
                 username,
                 key_file,
                 passphrase,
+                train_profile,
             )
 
             if wan_raw_results.get("ls_unified") == "CONNECTION_TIMEOUT":
@@ -1187,6 +1090,7 @@ def diagnose_combined_fleet():
                     username,
                     key_file,
                     passphrase,
+                    train_profile,
                 )
 
             if (
@@ -1214,6 +1118,10 @@ def diagnose_combined_fleet():
                     "gps_diagnosis": gps_diagnosis,
                     "wan_state": "UNKNOWN",
                     "wan_results": [],
+                    "report_wans": [
+                        int(wan)
+                        for wan in train_profile["active_wans"]
+                    ],
                     "overall_state": overall_state,
                 })
 
@@ -1222,7 +1130,9 @@ def diagnose_combined_fleet():
 
             wan_results = []
 
-            for wan_number in [1, 2, 3]:
+            for wan_slot in train_profile["wan_slots"]:
+                wan_number = int(wan_slot)
+
                 wan_result = get_wan_result(
                     wan_number,
                     wan_raw_results,
@@ -1249,6 +1159,10 @@ def diagnose_combined_fleet():
                 "gps_next_steps": gps_next_steps,
                 "wan_state": wan_state,
                 "wan_results": wan_results,
+                "report_wans": [
+                    int(wan)
+                    for wan in train_profile["active_wans"]
+                ],
                 "overall_state": overall_state,
             })
 
