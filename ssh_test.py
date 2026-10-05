@@ -2,7 +2,7 @@ import paramiko
 from getpass import getpass
 
 
-host = input("CCU IP address: ")
+host = input("Onboard system IP address: ")
 port = int(input("SSH port [2510]: ") or "2510")
 username = input("Username [root]: ") or "root"
 key_file = input("OpenSSH private key path: ")

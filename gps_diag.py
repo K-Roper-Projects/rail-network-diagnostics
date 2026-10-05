@@ -2,424 +2,44 @@ from pathlib import Path
 from getpass import getpass
 import re
 import csv
-import socket
+
 from datetime import datetime
-import paramiko
-
-SSH_PORT = 2510
-SSH_USERNAME = "root"
-SSH_KEY_PATH = r"C:\SSH\kevin-roper"
-
-FLEET_PROFILES = {
-    "gwr_165_166": {
-        "gps_device_mode": "fixed",
-        "gps_device": "/dev/ttyS1",
-        "active_wans": ["01", "03"],
-        "vlan": "br0.105",
-        "gprmc_file": "/var/local/gprmc",
-        "broadcast_process": "broadcast_unicast_gps.py",
-    },
-    "gwr_800_802": {
-        "gps_device_mode": "auto",
-        "active_wans": ["01", "02"],        
-        "vlan": "br0.105",
-        "gprmc_file": "/var/local/gprmc",
-        "broadcast_process": "broadcast_unicast_gps.py",
-    },
-    "xc_220_221": {
-        "gps_device_mode": "auto",
-        "active_wans": ["01", "02", "03"],
-        "vlan": "br0.105",
-        "gprmc_file": "/var/local/gprmc",
-        "broadcast_process": "broadcast_unicast_gps.py",
-    },
-    "xc_170": {
-        "gps_device_mode": "auto",
-        "active_wans": ["01", "02", "03"],
-        "vlan": "br0.105",
-        "gprmc_file": "/var/local/gprmc",
-        "broadcast_process": "broadcast_unicast_gps.py",
-    },
-}
-
-def parse_gprmc(line):
-    line = line.strip()
-
-    if not line.startswith("$GPRMC"):
-        return {
-            "valid_sentence": False,
-            "utc_time": None,
-            "status": "UNKNOWN",
-            "healthy": False,
-            "reason": "Not a valid GPRMC sentence",
-        }
-
-    parts = line.split(",")
-
-    if len(parts) < 3:
-        return {
-            "valid_sentence": False,
-            "utc_time": None,
-            "status": "UNKNOWN",
-            "healthy": False,
-            "reason": "Incomplete GPRMC sentence",
-        }
-
-    utc_time = parts[1]
-    status = parts[2]
-
-    if status == "A":
-        reason = "Valid active GPS fix"
-        healthy = True
-    elif status == "V":
-        reason = "Invalid GPS fix"
-        healthy = False
-    else:
-        reason = "Unknown GPS fix status"
-        healthy = False
-
-    return {
-        "valid_sentence": True,
-        "utc_time": utc_time if utc_time else "Missing",
-        "status": status,
-        "healthy": healthy,
-        "reason": reason,
-    }
-
-
-def parse_satellites(nmea_text):
-    match = re.search(r"\$GPGSV,\d+,\d+,(\d+)", nmea_text)
-
-    if not match:
-        return None
-
-    return int(match.group(1))
-
-def get_gps_recommendation(results, satellites):
-    gprmc = parse_gprmc(results.get("gprmc", ""))
-    gps_device = results.get("gps_device", "")
-    nmea = results.get("nmea", "")
-    tty = results.get("tty", "")
-    gps_process = results.get("gps", "")
-    mqtt_process = results.get("mqtt", "")
-    broadcast_process = results.get("broadcast", "")
-    vlan105 = results.get("vlan105", "")
-
-    if gps_device == "NOT_DETECTED" or "GPS_DEVICE_NOT_DETECTED" in tty:
-        return (
-            "GPS device not detected",
-            "Check GPS receiver connection, serial device mapping, and CCU hardware. If the device remains missing after reboot, raise FSE ticket for GPS receiver or cabling investigation."
-        )
-
-    if not gps_process.strip():
-        return (
-            "GPS process not running",
-            "Restart GPS service or reboot CCU. If the GPS process repeatedly fails to start, escalate for software/service investigation."
-        )
-
-    if not contains_nmea(nmea):
-        return (
-            "GPS receiver not outputting NMEA",
-            "Check GPS receiver output and serial port assignment. If no NMEA is present after reboot, raise FSE ticket for GPS receiver or antenna path investigation."
-        )
-
-    if satellites == 0:
-        return (
-            "GPS has no satellites visible",
-            "Check GPS antenna, antenna cabling, receiver placement, and possible obstruction. Raise FSE ticket if persistent."
-        )
-
-    if (
-        gprmc["status"] == "V"
-        and gprmc["utc_time"] == "Missing"
-        and satellites == 0
-    ):
-        return (
-            "GPS invalid fix - no satellites visible",
-            "Likely GPS antenna, receiver, or reception issue. Check antenna path and receiver health."
-        )
-
-    if (
-        gprmc["status"] == "V"
-        and satellites is not None
-        and satellites > 0
-    ):
-        return (
-            "GPS invalid fix despite satellite visibility",
-            "GPS receiver can see satellites but has not obtained a valid navigation solution. Monitor for recovery and investigate receiver or antenna performance if persistent."
-        )
-
-    if gprmc["status"] == "V":
-        return (
-            "GPS invalid fix",
-            "GPS receiver is outputting data but does not currently have a valid fix. Monitor and investigate if persistent."
-        )
-
-    if gprmc["healthy"]:
-
-        if not mqtt_process.strip():
-            return (
-                "GPS operational with service warning",
-                "GPS receiver has a valid fix, but MQTT is not running. Restart MQTT process or reboot CCU if GPS data is not being consumed correctly."
-            )
-
-        if "broadcast_unicast_gps.py" not in broadcast_process:
-            return (
-                "GPS operational with service warning",
-                "GPS receiver has a valid fix, but the GPS broadcast process is not running. Restart GPS broadcast process or reboot CCU if downstream systems are not receiving GPS data."
-            )
-
-        if "br0.105" not in vlan105:
-            return (
-                "GPS operational with network warning",
-                "GPS receiver has a valid fix, but VLAN105 is missing. Check CCU network/VLAN configuration if GPS data is not reaching downstream systems."
-            )
-
-        return (
-            "GPS operational",
-            "No action required."
-        )
-
-    return (
-        "GPS fault - cause not yet classified",
-        "Review GPS process, serial device, NMEA output, GPRMC status, satellite count, MQTT, broadcast process, and VLAN105 status."
-    )
-
-def parse_wan_loadbalance(loadbalance_text):
-
-    data = {}
-
-    for line in loadbalance_text.splitlines():
-
-        if "=" not in line:
-            continue
-
-        key, value = line.split("=", 1)
-
-        data[key.strip()] = value.strip()
-
-    return {
-        "interface": data.get("interface", ""),
-        "ca": data.get("ca", "0"),
-        "rtt": data.get("rtt", ""),
-        "bandwidth": data.get("bw", ""),
-        "rank": data.get("rank", ""),
-    }
-
-def classify_wan_status(wan_data):
-
-    if wan_data["ca"] == "1":
-        return "AVAILABLE"
-
-    return "UNAVAILABLE"
-
-def get_wan_recommendation(wan_number, status, results):
-    prefix = f"wan{wan_number}"
-
-    state = results.get(f"{prefix}_state", "").strip()
-    attach_state = results.get(f"{prefix}_attach_state", "").strip()
-    registration = results.get(f"{prefix}_registration_status", "").strip()
-    modem_details = results.get(f"{prefix}_modem_details", "").strip()
-    interface = results.get(f"{prefix}_ifname", "").strip()
-    device = results.get(f"{prefix}_dev", "").strip()
-    ca_state = results.get(f"{prefix}_ca", "").strip()
-
-    wan_data = parse_wan_loadbalance(
-        results.get(f"{prefix}_loadbalance", "")
-    )
-
-    loadbalance_interface = wan_data.get("interface", "")
-    loadbalance_ca = wan_data.get("ca", "0")
-    loadbalance_rtt = wan_data.get("rtt", "")
-
-    try:
-        latency_ms = int(float(loadbalance_rtt or 0))
-    except ValueError:
-        latency_ms = 0
-
-    # 60000ms is a failure value, even if interface/CA data briefly looks valid.
-    if latency_ms >= 60000:
-        return (
-            "WAN attached but failing latency check",
-            "Reset WAN process and monitor. If high latency returns, raise FSE ticket for modem investigation or replacement."
-        )
-
-    # Trust operational loadbalance evidence before missing modem metadata.
-    if (
-        (interface or loadbalance_interface)
-        and (str(ca_state) == "1" or str(loadbalance_ca) == "1")
-    ):
-        return (
-            "WAN operational",
-            "No action required."
-        )
-
-    if status == "AVAILABLE":
-        return (
-            "WAN operational",
-            "No action required."
-        )
-
-    if (
-        "PDP" in state.upper()
-        or "PDP" in attach_state.upper()
-        or "PDP" in registration.upper()
-    ):
-        return (
-            "PDP context/session error",
-            "Reset WAN process and monitor. If PDP error reoccurs, investigate SIM/APN/session setup and escalate if persistent."
-        )
-
-    if (
-        "NO PLMN" in state.upper()
-        or "NO PLMN" in attach_state.upper()
-        or "NO PLMN" in registration.upper()
-    ):
-        return (
-            "Network registration failure - NO PLMN",
-            "Reset WAN process and monitor. If NO PLMN reoccurs after WAN process restart or train reboot, raise FSE ticket for modem or SIM investigation."
-        )
-
-    if (
-        "POWER ON" in state.upper()
-        or "POWER ON" in attach_state.upper()
-    ):
-        return (
-            "Modem stuck during power-on initialisation",
-            "Reset WAN process or reboot CCU. If the state returns, raise FSE ticket for modem investigation or replacement."
-        )
-
-    if (
-        state == "INIT"
-        and "ATTEMPTING NETWORK ATTACH" in attach_state.upper()
-        and "REGISTERED" in registration.upper()
-    ):
-        return (
-            "WAN INIT - attach/interface bring-up failure",
-            "Reset WAN process and monitor. If the fault reoccurs after WAN process restart or train reboot, raise FSE ticket for modem replacement."
-        )
-    if (
-        "NO LEASE" in state.upper()
-        or "NO LEASE" in attach_state.upper()
-        or "NO LEASE" in registration.upper()
-    ):
-        return (
-            "WAN DHCP lease acquisition failure",
-            "Reset WAN process and monitor. If fault develops into dhcp_cal or reoccurs, investigate Sierra Wireless modem session handling and consider modem replacement."
-        )
-    
-    if state in ["WAIT#DHCP", "STATE_WAIT_DHCP"]:
-        return (
-            "WAN DHCP negotiation failure",
-            "Reset WAN process and monitor. If DHCP failure reoccurs, investigate modem DHCP/session handling and consider modem replacement."
-        )
-
-    if state in ["SHOW-LTE", "SHOWTIME"] and attach_state == "-------":
-        return (
-            "LTE session establishment incomplete",
-            "Reset WAN process and monitor. If fault persists, investigate modem registration and data session establishment."
-        )
-
-    if (
-        not modem_details
-        and not interface
-        and not device
-        and not loadbalance_interface
-        and str(ca_state) != "1"
-        and str(loadbalance_ca) != "1"
-    ):
-        return (
-            "Modem not detected",
-            "Reboot CCU and recheck modem detection. If still not detected, raise FSE ticket for modem replacement."
-        )
-
-    if interface == "" and device == "" and loadbalance_interface == "":
-        return (
-            "WAN unavailable - no active interface",
-            "Reset WAN process and monitor. If interface remains unavailable, raise to 2nd Line or FSE for modem investigation."
-        )
-
-    return (
-        "WAN unavailable - cause not yet classified",
-        "Review modem state, registration status, attach state, and interface data. Escalate if fault persists."
-    )
-
-def get_wan_result(wan_number, results, train_profile):
-    wan_id = f"{wan_number:02d}"
-    prefix = f"wan{wan_number}"
-
-    if wan_id not in train_profile.get("active_wans", []):
-        return {
-            "status": "DISABLED",
-            "diagnosis": "WAN disabled by fleet design",
-            "next_steps": "No action required.",
-        }
-
-    wan_data = parse_wan_loadbalance(
-        results.get(f"{prefix}_loadbalance", "")
-    )
-
-    status = classify_wan_status(wan_data)
-
-    diagnosis, next_steps = get_wan_recommendation(
-        wan_number,
-        status,
-        results,
-    )
-
-    if diagnosis == "WAN operational":
-        status = "AVAILABLE"
-
-    return {
-        "status": status,
-        "diagnosis": diagnosis,
-        "next_steps": next_steps,
-    }
-
-def run_ssh_command(host, port, username, key_file, passphrase, command):
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-    try:
-        client.connect(
-            hostname=host,
-            port=port,
-            username=username,
-            key_filename=key_file,
-            passphrase=passphrase,
-            timeout=25,
-            look_for_keys=False,
-            allow_agent=False,
-        )
-
-        stdin, stdout, stderr = client.exec_command(command, timeout=30)
-
-        output = stdout.read().decode(errors="ignore").strip()
-        error = stderr.read().decode(errors="ignore").strip()
-
-        return output if output else error
-
-    except (socket.timeout, TimeoutError, paramiko.ssh_exception.NoValidConnectionsError):
-        return "CONNECTION_TIMEOUT"
-
-    except Exception as e:
-        return f"SSH_ERROR: {e}"
-
-    finally:
-        client.close()
-        
-def contains_nmea(text):
-    return any(
-        sentence in text
-        for sentence in [
-            "$GPRMC",
-            "$GPGGA",
-            "$GPGSV",
-            "$GNGSA",
-            "$GLGSV",
-        ]
-    )
-
+from config.fleet_profiles import FLEET_PROFILES
+
+from ssh_client import (
+    SSH_PORT,
+    SSH_USERNAME,
+    SSH_KEY_PATH,
+    run_ssh_command,
+)
+
+from diagnostics.health import (
+    classify_gps_health,
+    classify_wan_health,
+    combine_health_states,
+)
+
+from diagnostics.gps import (
+    parse_gprmc,
+    parse_satellites,
+    contains_nmea,
+    get_gps_recommendation,
+)
+
+from diagnostics.wan import (
+    parse_wan_loadbalance,
+    classify_wan_status,
+    get_wan_recommendation,
+    get_wan_result,
+)
+
+from reporting.reports import (
+    save_timeout_csv_report,
+    save_wan_fleet_csv_report,
+    save_wan_csv_report,
+    generate_wan_html_report,
+    generate_combined_html_report,
+)   
 
 def detect_gps_device(host, username, key_file, passphrase, profile):
 
@@ -509,139 +129,107 @@ def detect_gps_device(host, username, key_file, passphrase, profile):
 
     return "NOT_DETECTED", ""
 
+def collect_gps_diagnostics(
+    host,
+    username,
+    key_file,
+    passphrase,
+    profile,
+):
+    results = {}
+
+    gps_device, nmea_output = detect_gps_device(
+        host,
+        username,
+        key_file,
+        passphrase,
+        profile,
+    )
+
+    checks = {
+        "tty": (
+            f"ls -l {gps_device}"
+            if gps_device != "NOT_DETECTED"
+            else "echo GPS_DEVICE_NOT_DETECTED"
+        ),
+        "gps": "ps aux | grep -i gps | grep -v grep",
+        "mqtt": "ps aux | grep -i mosquitto | grep -v grep",
+        "broadcast": (
+            f"ps aux | grep {profile['broadcast_process']} | grep -v grep"
+        ),
+        "vlan105": f"ip addr show {profile['vlan']}",
+        "gprmc": f"cat {profile['gprmc_file']}",
+    }
+
+    for name, command in checks.items():
+        results[name] = run_ssh_command(
+            host,
+            SSH_PORT,
+            username,
+            key_file,
+            passphrase,
+            command,
+        )
+
+    results["nmea"] = nmea_output
+    results["gps_device"] = gps_device
+    results["host"] = host
+
+    return results
+
 def collect_wan_diagnostics(
     host,
     username,
     key_file,
     passphrase,
+    profile,
 ):
     results = {}
 
-    command = r"""
-    echo
-    echo "### ls_unified ###"
-    /usr/local/bin/ls_unified 2>/dev/null
-    echo
-    echo "### wan1_modem_details ###"
-    cat /var/local/unified/01/modem-details 2>/dev/null
-    echo
-    echo "### wan1_firmware ###"
-    cat /var/local/unified/01/modem-firmware 2>/dev/null
-    echo
-    echo "### wan1_cell_id ###"
-    cat /var/local/unified/01/cell-id 2>/dev/null
-    echo
-    echo "### wan1_loadbalance ###"
-    cat /var/local/loadbalance/wans/wan1 2>/dev/null
-    echo
-    echo "### wan1_state ###"
-    cat /var/local/unified/01/state 2>/dev/null
-    echo
-    echo "### wan1_attach_state ###"
-    cat /var/local/unified/01/attach-state 2>/dev/null
-    echo
-    echo "### wan1_registration_status ###"
-    cat /var/local/unified/01/registration-status 2>/dev/null
-    echo
-    echo "### wan1_operator ###"
-    cat /var/local/unified/01/current-operator 2>/dev/null
-    echo
-    echo "### wan1_tech ###"
-    cat /var/local/unified/01/tech 2>/dev/null
-    echo
-    echo "### wan1_tech_details ###"
-    cat /var/local/unified/01/tech-details 2>/dev/null
-    echo
-    echo "### wan1_ifname ###"
-    cat /var/local/unified/01/ifname 2>/dev/null
-    echo
-    echo "### wan1_dev ###"
-    cat /var/local/unified/01/dev 2>/dev/null
-    echo
-    echo "### wan1_ca ###"
-    cat /var/local/unified/01/ca 2>/dev/null
-    echo
-    
-    echo "### wan2_modem_details ###"
-    cat /var/local/unified/02/modem-details 2>/dev/null
-    echo
-    echo "### wan2_firmware ###"
-    cat /var/local/unified/02/modem-firmware 2>/dev/null
-    echo
-    echo "### wan2_cell_id ###"
-    cat /var/local/unified/02/cell-id 2>/dev/null
-    echo
-    echo "### wan2_loadbalance ###"
-    cat /var/local/loadbalance/wans/wan2 2>/dev/null
-    echo
-    echo "### wan2_state ###"
-    cat /var/local/unified/02/state 2>/dev/null
-    echo
-    echo "### wan2_attach_state ###"
-    cat /var/local/unified/02/attach-state 2>/dev/null
-    echo
-    echo "### wan2_registration_status ###"
-    cat /var/local/unified/02/registration-status 2>/dev/null
-    echo
-    echo "### wan2_operator ###"
-    cat /var/local/unified/02/current-operator 2>/dev/null
-    echo
-    echo "### wan2_tech ###"
-    cat /var/local/unified/02/tech 2>/dev/null
-    echo
-    echo "### wan2_tech_details ###"
-    cat /var/local/unified/02/tech-details 2>/dev/null
-    echo
-    echo "### wan2_ifname ###"
-    cat /var/local/unified/02/ifname 2>/dev/null
-    echo
-    echo "### wan2_dev ###"
-    cat /var/local/unified/02/dev 2>/dev/null
-    echo
-    echo "### wan2_ca ###"
-    cat /var/local/unified/02/ca 2>/dev/null
-    echo
+    command_parts = [
+        'echo',
+        'echo "### ls_unified ###"',
+        '/usr/local/bin/ls_unified 2>/dev/null',
+    ]
 
-    echo "### wan3_modem_details ###"
-    cat /var/local/unified/03/modem-details 2>/dev/null
-    echo
-    echo "### wan3_firmware ###"
-    cat /var/local/unified/03/modem-firmware 2>/dev/null
-    echo
-    echo "### wan3_cell_id ###"
-    cat /var/local/unified/03/cell-id 2>/dev/null
-    echo
-    echo "### wan3_loadbalance ###"
-    cat /var/local/loadbalance/wans/wan3 2>/dev/null
-    echo
-    echo "### wan3_state ###"
-    cat /var/local/unified/03/state 2>/dev/null
-    echo
-    echo "### wan3_attach_state ###"
-    cat /var/local/unified/03/attach-state 2>/dev/null
-    echo
-    echo "### wan3_registration_status ###"
-    cat /var/local/unified/03/registration-status 2>/dev/null
-    echo
-    echo "### wan3_operator ###"
-    cat /var/local/unified/03/current-operator 2>/dev/null
-    echo
-    echo "### wan3_tech ###"
-    cat /var/local/unified/03/tech 2>/dev/null
-    echo
-    echo "### wan3_tech_details ###"
-    cat /var/local/unified/03/tech-details 2>/dev/null
-    echo
-    echo "### wan3_ifname ###"
-    cat /var/local/unified/03/ifname 2>/dev/null
-    echo
-    echo "### wan3_dev ###"
-    cat /var/local/unified/03/dev 2>/dev/null
-    echo
-    echo "### wan3_ca ###"
-    cat /var/local/unified/03/ca 2>/dev/null
-    echo
-    """
+    wan_files = {
+        "modem_details": "modem-details",
+        "firmware": "modem-firmware",
+        "cell_id": "cell-id",
+        "state": "state",
+        "attach_state": "attach-state",
+        "registration_status": "registration-status",
+        "operator": "current-operator",
+        "tech": "tech",
+        "tech_details": "tech-details",
+        "ifname": "ifname",
+        "dev": "dev",
+        "ca": "ca",
+    }
+
+    for wan_slot in profile["wan_slots"]:
+        wan_number = int(wan_slot)
+
+        for result_name, file_name in wan_files.items():
+            command_parts.extend([
+                "echo",
+                f'echo "### wan{wan_number}_{result_name} ###"',
+                (
+                    f"cat /var/local/unified/{wan_slot}/{file_name} "
+                    "2>/dev/null"
+                ),
+            ])
+
+        command_parts.extend([
+            "echo",
+            f'echo "### wan{wan_number}_loadbalance ###"',
+            (
+                f"cat /var/local/loadbalance/wans/wan{wan_number} "
+                "2>/dev/null"
+            ),
+        ])
+
+    command = "\n".join(command_parts)
 
     output = run_ssh_command(
         host,
@@ -674,7 +262,8 @@ def collect_wan_diagnostics(
 
     expected_keys = ["ls_unified"]
 
-    for wan in [1, 2, 3]:
+    for wan_slot in profile["wan_slots"]:
+        wan = int(wan_slot)
         expected_keys.extend([
             f"wan{wan}_modem_details",
             f"wan{wan}_firmware",
@@ -728,115 +317,6 @@ def print_report(train_id, gprmc_line, satellites=None):
     print(f"Diagnosis: {diagnosis}")
     print(f"Likely Cause: {likely_cause}")
     print("=" * 70)
-
-def generate_wan_html_report(scan_results, output_file):
-    generated_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    html = f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Fleet WAN Diagnostic Report</title>
-    <style>
-        body {{
-            font-family: Arial, sans-serif;
-            margin: 20px;
-            background-color: #f4f6f8;
-        }}
-        h1 {{
-            color: #2c3e50;
-        }}
-        table {{
-            border-collapse: collapse;
-            width: 100%;
-            background-color: white;
-        }}
-        th, td {{
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }}
-        th {{
-            background-color: #2c3e50;
-            color: white;
-        }}
-        .healthy {{
-            color: green;
-            font-weight: bold;
-        }}
-        .fault {{
-            color: red;
-            font-weight: bold;
-        }}
-        .offline {{
-            color: gray;
-            font-weight: bold;
-        }}
-    </style>
-</head>
-<body>
-
-<h1>Fleet WAN Diagnostic Report</h1>
-<p><strong>Generated:</strong> {generated_time}</p>
-
-<table>
-<tr>
-    <th>Train ID</th>
-    <th>IP Address</th>
-    <th>WAN1 Status</th>
-    <th>WAN1 Diagnosis</th>
-    <th>WAN2 Status</th>
-    <th>WAN2 Diagnosis</th>
-    <th>WAN3 Status</th>
-    <th>WAN3 Diagnosis</th>
-    <th>Overall Status</th>
-</tr>
-"""
-
-    for row in scan_results:
-        overall_status = row.get("overall_status", "UNKNOWN")
-        status_class = get_status_class(overall_status)
-
-        html += f"""
-<tr>
-    <td>{row.get("train_id", "")}</td>
-    <td>{row.get("ip_address", "")}</td>
-    <td>{row.get("wan1_status", "N/A")}</td>
-    <td>{row.get("wan1_diagnosis", "N/A")}</td>
-    <td>{row.get("wan2_status", "N/A")}</td>
-    <td>{row.get("wan2_diagnosis", "N/A")}</td>
-    <td>{row.get("wan3_status", "N/A")}</td>
-    <td>{row.get("wan3_diagnosis", "N/A")}</td>
-    <td class="{status_class}">{overall_status}</td>
-</tr>
-"""
-
-    html += """
-</table>
-</body>
-</html>
-"""
-
-    output_path = Path(output_file)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(output_path, "w", encoding="utf-8") as file:
-        file.write(html)
-
-def get_status_class(status):
-    status = str(status).upper()
-
-    if status in ["HEALTHY", "ONLINE", "AVAILABLE"]:
-        return "healthy"
-    elif status in ["FAULT", "FAULTY", "FAILED", "ERROR"]:
-        return "fault"
-    elif status in ["WARNING", "DEGRADED", "ATTENTION"]:
-        return "warning"
-    elif status in ["OFFLINE", "TIMEOUT", "UNREACHABLE"]:
-        return "offline"
-    else:
-        return ""
 
 def print_extended_report(train_id, results, satellites):
 
@@ -918,327 +398,80 @@ def print_wan_report(train_id, results, train_profile):
     print("-" * 40)
     print(results.get("ls_unified", "No ls_unified output"))
 
-    wan1 = parse_wan_loadbalance(
-    results["wan1_loadbalance"]
-)
+    for wan_slot in train_profile["active_wans"]:
+        wan_number = int(wan_slot)
 
-    wan1_result = get_wan_result(
-        1,
-        results,
-        train_profile,
-    )
-
-    wan1_status = wan1_result["status"]
-    wan1_diagnosis = wan1_result["diagnosis"]
-    wan1_action = wan1_result["next_steps"]
-    
-    print("\nWAN 1")
-    print("-" * 40)
-
-    print(f"Modem State   : {results.get('wan1_state', '')}")
-    print(f"Attach State  : {results.get('wan1_attach_state', '')}")
-    print(f"Registration  : {results.get('wan1_registration_status', '')}")
-    print(f"Operator      : {results.get('wan1_operator', '')}")
-    print(f"Technology    : {results.get('wan1_tech', '')}")
-    print(f"Tech Details  : {results.get('wan1_tech_details', '')}")
-    print(f"Unified IF    : {results.get('wan1_ifname', '')}")
-    print(f"Device        : {results.get('wan1_dev', '')}")
-    print(f"CA State      : {results.get('wan1_ca', '')}")
-    print(f"Status        : {wan1_status}")
-    print(f"Interface     : {wan1['interface']}")
-    print(f"Latency (RTT) : {wan1['rtt']} ms")
-    print(f"Serving Cell  : {results['wan1_cell_id']}")
-    print(f"Modem         : {results['wan1_modem_details']}")
-    print(f"Firmware      : {results['wan1_firmware']}")
-    print("\nDiagnosis")
-    print("-" * 40)
-    print(f"Diagnosis     : {wan1_diagnosis}")
-    print(f"Next Steps    : {wan1_action}")
-
-    wan2 = parse_wan_loadbalance(
-    results["wan2_loadbalance"]
-    )
-
-    wan2_result = get_wan_result(
-        2,
-        results,
-        train_profile,
-    )
-
-    wan2_status = wan2_result["status"]
-    wan2_diagnosis = wan2_result["diagnosis"]
-    wan2_action = wan2_result["next_steps"]
-
-    print("\nWAN 2")
-    print("-" * 40)
-
-    print(f"Modem State   : {results.get('wan2_state', '')}")
-    print(f"Attach State  : {results.get('wan2_attach_state', '')}")
-    print(f"Registration  : {results.get('wan2_registration_status', '')}")
-    print(f"Operator      : {results.get('wan2_operator', '')}")
-    print(f"Technology    : {results.get('wan2_tech', '')}")
-    print(f"Tech Details  : {results.get('wan2_tech_details', '')}")
-    print(f"Unified IF    : {results.get('wan2_ifname', '')}")
-    print(f"Device        : {results.get('wan2_dev', '')}")
-    print(f"CA State      : {results.get('wan2_ca', '')}")
-    print(f"Status        : {wan2_status}")
-    print(f"Interface     : {wan2['interface']}")
-    print(f"Latency (RTT) : {wan2['rtt']} ms")
-    print(f"Serving Cell  : {results['wan2_cell_id']}")
-    print(f"Modem         : {results['wan2_modem_details']}")
-    print(f"Firmware      : {results['wan2_firmware']}")
-    print("\nDiagnosis")
-    print("-" * 40)
-    print(f"Diagnosis     : {wan2_diagnosis}")
-    print(f"Next Steps    : {wan2_action}")
-
-    wan3 = parse_wan_loadbalance(
-    results["wan3_loadbalance"]
-    )
-
-    wan3_result = get_wan_result(
-        3,
-        results,
-        train_profile,
-    )
-
-    wan3_status = wan3_result["status"]
-    wan3_diagnosis = wan3_result["diagnosis"]
-    wan3_action = wan3_result["next_steps"]
-
-    print("\nWAN 3")
-    print("-" * 40)
-
-    print(f"Modem State   : {results.get('wan3_state', '')}")
-    print(f"Attach State  : {results.get('wan3_attach_state', '')}")
-    print(f"Registration  : {results.get('wan3_registration_status', '')}")
-    print(f"Unified IF    : {results.get('wan3_ifname', '')}")
-    print(f"Device        : {results.get('wan3_dev', '')}")
-    print(f"CA State      : {results.get('wan3_ca', '')}") 
-    print(f"Status        : {wan3_status}")
-    print(f"Interface     : {wan3['interface']}")
-    print("\nDiagnosis")
-    print("-" * 40)
-    print(f"Diagnosis     : {wan3_diagnosis}")
-    print(f"Next Steps    : {wan3_action}")
-
-    print("\n" + "=" * 80)   
-
-def save_wan_csv_report(train_id, host, results):
-    reports_dir = Path("reports")
-    reports_dir.mkdir(exist_ok=True)
-
-    csv_file = reports_dir / "wan_diagnostics.csv"
-
-    wan1 = parse_wan_loadbalance(results["wan1_loadbalance"])
-    wan2 = parse_wan_loadbalance(results["wan2_loadbalance"])
-    wan3 = parse_wan_loadbalance(results["wan3_loadbalance"])
-
-    file_exists = csv_file.exists()
-
-    with open(csv_file, mode="a", newline="") as file:
-        writer = csv.writer(file)
-
-        if not file_exists:
-            writer.writerow([
-                "timestamp",
-                "train_id",
-                "ip_address",
-
-                "wan1_status",
-                "wan1_modem_state",
-                "wan1_attach_state",
-                "wan1_registration_status",
-                "wan1_operator",
-                "wan1_technology",
-                "wan1_tech_details",
-                "wan1_unified_if",
-                "wan1_device",
-                "wan1_ca_state",
-                "wan1_interface",
-                "wan1_latency_ms",
-                "wan1_serving_cell",
-                "wan1_modem",
-                "wan1_firmware",
-                "wan1_diagnosis",
-                "wan1_next_steps",
-
-                "wan2_status",
-                "wan2_modem_state",
-                "wan2_attach_state",
-                "wan2_registration_status",
-                "wan2_operator",
-                "wan2_technology",
-                "wan2_tech_details",
-                "wan2_unified_if",
-                "wan2_device",
-                "wan2_ca_state",
-                "wan2_interface",
-                "wan2_latency_ms",
-                "wan2_serving_cell",
-                "wan2_modem",
-                "wan2_firmware",
-                "wan2_diagnosis",
-                "wan2_next_steps",
-
-                "wan3_status",
-                "wan3_modem_state",
-                "wan3_attach_state",
-                "wan3_registration_status",
-                "wan3_unified_if",
-                "wan3_device",
-                "wan3_ca_state",
-                "wan3_interface",
-                "wan3_latency_ms",
-                "wan3_diagnosis",
-                "wan3_next_steps",
-            ])
-
-        wan1_diagnosis, wan1_action = get_wan_recommendation(
-            1,
-            classify_wan_status(wan1),
-            results
-        )
-            
-        wan2_diagnosis, wan2_action = get_wan_recommendation(
-            2,
-            classify_wan_status(wan2),
-            results
+        wan = parse_wan_loadbalance(
+            results[f"wan{wan_number}_loadbalance"]
         )
 
-        wan3_diagnosis, wan3_action = get_wan_recommendation(
-            3,
-            classify_wan_status(wan3),
-            results
+        wan_result = get_wan_result(
+            wan_number,
+            results,
+            train_profile,
         )
 
-        writer.writerow([
-            datetime.now().isoformat(timespec="seconds"),
-            train_id,
-            host,
+        print(f"\nWAN {wan_number}")
+        print("-" * 40)
 
-            classify_wan_status(wan1),
-            results.get("wan1_state", ""),
-            results.get("wan1_attach_state", ""),
-            results.get("wan1_registration_status", ""),
-            results.get("wan1_operator", ""),
-            results.get("wan1_tech", ""),
-            results.get("wan1_tech_details", ""),
-            results.get("wan1_ifname", ""),
-            results.get("wan1_dev", ""),
-            results.get("wan1_ca", ""),
-            wan1["interface"],
-            wan1["rtt"],
-            results.get("wan1_cell_id", ""),
-            results.get("wan1_modem_details", ""),
-            results.get("wan1_firmware", ""),
-            wan1_diagnosis,
-            wan1_action,
+        print(
+            f"Modem State   : "
+            f"{results.get(f'wan{wan_number}_state', '')}"
+        )
+        print(
+            f"Attach State  : "
+            f"{results.get(f'wan{wan_number}_attach_state', '')}"
+        )
+        print(
+            f"Registration  : "
+            f"{results.get(f'wan{wan_number}_registration_status', '')}"
+        )
+        print(
+            f"Operator      : "
+            f"{results.get(f'wan{wan_number}_operator', '')}"
+        )
+        print(
+            f"Technology    : "
+            f"{results.get(f'wan{wan_number}_tech', '')}"
+        )
+        print(
+            f"Tech Details  : "
+            f"{results.get(f'wan{wan_number}_tech_details', '')}"
+        )
+        print(
+            f"Unified IF    : "
+            f"{results.get(f'wan{wan_number}_ifname', '')}"
+        )
+        print(
+            f"Device        : "
+            f"{results.get(f'wan{wan_number}_dev', '')}"
+        )
+        print(
+            f"CA State      : "
+            f"{results.get(f'wan{wan_number}_ca', '')}"
+        )
+        print(f"Status        : {wan_result['status']}")
+        print(f"Interface     : {wan['interface']}")
+        print(f"Latency (RTT) : {wan['rtt']} ms")
+        print(
+            f"Serving Cell  : "
+            f"{results.get(f'wan{wan_number}_cell_id', '')}"
+        )
+        print(
+            f"Modem         : "
+            f"{results.get(f'wan{wan_number}_modem_details', '')}"
+        )
+        print(
+            f"Firmware      : "
+            f"{results.get(f'wan{wan_number}_firmware', '')}"
+        )
 
-            classify_wan_status(wan2),
-            results.get("wan2_state", ""),
-            results.get("wan2_attach_state", ""),
-            results.get("wan2_registration_status", ""),
-            results.get("wan2_operator", ""),
-            results.get("wan2_tech", ""),
-            results.get("wan2_tech_details", ""),
-            results.get("wan2_ifname", ""),
-            results.get("wan2_dev", ""),
-            results.get("wan2_ca", ""),
-            wan2["interface"],
-            wan2["rtt"],
-            results.get("wan2_cell_id", ""),
-            results.get("wan2_modem_details", ""),
-            results.get("wan2_firmware", ""),
-            wan2_diagnosis,
-            wan2_action,
+        print("\nDiagnosis")
+        print("-" * 40)
+        print(f"Diagnosis     : {wan_result['diagnosis']}")
+        print(f"Next Steps    : {wan_result['next_steps']}")
 
-            classify_wan_status(wan3),
-            results.get("wan3_state", ""),
-            results.get("wan3_attach_state", ""),
-            results.get("wan3_registration_status", ""),
-            results.get("wan3_ifname", ""),
-            results.get("wan3_dev", ""),
-            results.get("wan3_ca", ""),
-            wan3["interface"],
-            wan3["rtt"],
-            wan3_diagnosis,
-            wan3_action,
-        ])
-
-    print(f"\nWAN CSV report updated: {csv_file}")
-
-def save_wan_fleet_csv_report(train_id, host, results, train_profile, report_file):
-    file_exists = Path(report_file).exists()
-
-    with open(report_file, mode="a", newline="") as file:
-        writer = csv.writer(file)
-
-        if not file_exists:
-            writer.writerow([
-                "timestamp",
-                "train_id",
-                "ip_address",
-                "wan",
-                "fleet_expected",
-                "status",
-                "diagnosis",
-                "next_steps",
-                "modem_state",
-                "attach_state",
-                "registration_status",
-                "operator",
-                "technology",
-                "tech_details",
-                "unified_if",
-                "device",
-                "ca_state",
-                "interface",
-                "latency_ms",
-                "serving_cell",
-                "modem",
-                "firmware",
-            ])
-
-        for wan_number in [1, 2, 3]:
-            wan_id = f"{wan_number:02d}"
-            prefix = f"wan{wan_number}"
-            fleet_expected = wan_id in train_profile.get("active_wans", [])
-
-            wan_data = parse_wan_loadbalance(
-                results.get(f"{prefix}_loadbalance", "")
-            )
-
-            wan_result = get_wan_result(
-                wan_number,
-                results,
-                train_profile,
-            )
-
-            writer.writerow([
-                datetime.now().isoformat(timespec="seconds"),
-                train_id,
-                host,
-                f"WAN{wan_number}",
-                fleet_expected,
-                wan_result["status"],
-                wan_result["diagnosis"],
-                wan_result["next_steps"],
-                results.get(f"{prefix}_state", ""),
-                results.get(f"{prefix}_attach_state", ""),
-                results.get(f"{prefix}_registration_status", ""),
-                results.get(f"{prefix}_operator", ""),
-                results.get(f"{prefix}_tech", ""),
-                results.get(f"{prefix}_tech_details", ""),
-                results.get(f"{prefix}_ifname", ""),
-                results.get(f"{prefix}_dev", ""),
-                results.get(f"{prefix}_ca", ""),
-                wan_data["interface"],
-                wan_data["rtt"],
-                results.get(f"{prefix}_cell_id", ""),
-                results.get(f"{prefix}_modem_details", ""),
-                results.get(f"{prefix}_firmware", ""),
-            ])
+    print("\n" + "=" * 80)
 
 def save_csv_report(train_id, host, results, satellites, diagnosis, likely_cause):
     reports_dir = Path("reports")
@@ -1298,54 +531,6 @@ def save_csv_report(train_id, host, results, satellites, diagnosis, likely_cause
 
     print(f"\nCSV report updated: {csv_file}")
 
-def save_timeout_csv_report(train_id, host, report_file=None):
-    reports_dir = Path("reports")
-    reports_dir.mkdir(exist_ok=True)
-
-    csv_file = Path(report_file) if report_file else reports_dir / "gps_diagnostics.csv"
-    file_exists = csv_file.exists()
-
-    with open(csv_file, mode="a", newline="") as file:
-        writer = csv.writer(file)
-
-        if not file_exists:
-            writer.writerow([
-                "timestamp",
-                "train_id",
-                "ip_address",
-                "gps_device",
-                "gprmc_status",
-                "utc_time",
-                "satellites_visible",
-                "gps_device_present",
-                "gps_running",
-                "mqtt_running",
-                "broadcast_running",
-                "vlan105_present",
-                "diagnosis",
-                "likely_cause",
-                "raw_gprmc",
-            ])
-
-        writer.writerow([
-            datetime.now().isoformat(timespec="seconds"),
-            train_id,
-            host,
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "Network connection timed out",
-            "Train unreachable or CCU offline",
-            "",
-        ])
-
-    print(f"\nCSV report updated: {csv_file}")
-
 def diagnose_from_files(gprmc_file, nmea_file=None):
     gprmc_path = Path(gprmc_file)
 
@@ -1364,10 +549,9 @@ def diagnose_from_files(gprmc_file, nmea_file=None):
 
     print_report("Offline Sample", gprmc_line, satellites)
 
-
 def diagnose_live_train():
     train_id = input("Train ID: ")
-    host = input("CCU IP address: ")
+    host = input("Onboard system IP address: ")
     username = SSH_USERNAME
     key_file = SSH_KEY_PATH
     passphrase = getpass("SSH key passphrase: ")
@@ -1427,7 +611,7 @@ def diagnose_live_train():
 def diagnose_wan_live():
 
     train_id = input("Train ID: ")
-    host = input("CCU IP address: ")
+    host = input("Onboard system IP address: ")
     username = SSH_USERNAME
     key_file = SSH_KEY_PATH
     passphrase = getpass("SSH key passphrase: ")
@@ -1442,6 +626,7 @@ def diagnose_wan_live():
         username,
         key_file,
         passphrase,
+        profile,
     )
 
     print_wan_report(
@@ -1466,6 +651,7 @@ def main():
     print("5. Fleet GPS Scan")
     print("6. WAN / Modem Diagnostics")
     print("7. Fleet WAN Scan")
+    print("8. Combined Fleet Health Scan")
 
     choice = input("\nSelect option: ")
 
@@ -1491,6 +677,9 @@ def main():
 
     elif choice == "7":
         diagnose_wan_fleet()
+
+    elif choice == "8":
+        diagnose_combined_fleet()
 
     else:
         print("Invalid option")
@@ -1604,6 +793,7 @@ def diagnose_wan_fleet():
                 username,
                 key_file,
                 passphrase,
+                train_profile,
             )
 
             if results.get("ls_unified") == "CONNECTION_TIMEOUT":
@@ -1614,6 +804,7 @@ def diagnose_wan_fleet():
                     username,
                     key_file,
                     passphrase,
+                    train_profile,
                 )
 
                 if results.get("ls_unified") == "CONNECTION_TIMEOUT":
@@ -1645,7 +836,8 @@ def diagnose_wan_fleet():
                 "overall_status": "HEALTHY",
             }
 
-            for wan_number in [1, 2, 3]:
+            for wan_slot in train_profile["wan_slots"]:
+                wan_number = int(wan_slot)
 
                 wan_result = get_wan_result(
                     wan_number,
@@ -1736,7 +928,298 @@ def diagnose_wan_fleet():
 
     print("=" * 70)
     print(f"WAN fleet report saved to: {report_file}")
- 
+
+def diagnose_combined_fleet():
+
+    username = SSH_USERNAME
+    key_file = SSH_KEY_PATH
+    passphrase = getpass("SSH key passphrase: ")
+
+    inventory_file = select_inventory_file()
+    profile_name = inventory_file.stem
+    profile = FLEET_PROFILES.get(profile_name)
+
+    if not profile:
+        raise ValueError(
+            f"No fleet profile found for inventory: {profile_name}"
+        )
+
+    trains = load_train_inventory(inventory_file)
+
+    combined_results = []
+
+    healthy_count = 0
+    degraded_count = 0
+    fault_count = 0
+    offline_count = 0
+    error_count = 0
+
+    print(f"\nLoaded {len(trains)} trains.")
+    print(f"Using profile: {profile_name}\n")
+
+    for train in trains:
+
+        train_id = train["train_id"]
+        host = train["ip_address"]
+        fleet_name = train.get("fleet") or profile_name
+        train_profile = FLEET_PROFILES.get(fleet_name)
+
+        if not train_id or not host:
+            continue
+
+        if not train_profile:
+            print(
+                f"ERROR: No fleet profile found for "
+                f"{fleet_name} on train {train_id}"
+            )
+            error_count += 1
+            continue
+
+        print(f"\nChecking {train_id} ({host}) - {fleet_name}")
+
+        try:
+            # -------------------------
+            # GPS diagnostics
+            # -------------------------
+
+            gps_results = collect_gps_diagnostics(
+                host,
+                username,
+                key_file,
+                passphrase,
+                train_profile,
+            )
+
+            if "CONNECTION_TIMEOUT" in gps_results.values():
+                print("GPS connection timed out - retrying once...")
+
+                gps_results = collect_gps_diagnostics(
+                    host,
+                    username,
+                    key_file,
+                    passphrase,
+                    train_profile,
+                )
+
+            if "CONNECTION_TIMEOUT" in gps_results.values():
+                print("OFFLINE - GPS connection timed out")
+
+                overall_state = combine_health_states(
+                    "FAULT",
+                    "FAULT",
+                    online=False,
+                )
+
+                combined_results.append({
+                    "train_id": train_id,
+                    "ip_address": host,
+                    "gps_state": "UNKNOWN",
+                    "gps_diagnosis": "Train unreachable",
+                    "wan_state": "UNKNOWN",
+                    "wan_results": [],
+                    "report_wans": [
+                        int(wan)
+                        for wan in train_profile["active_wans"]
+                    ],
+                    "overall_state": overall_state,
+                })
+                offline_count += 1
+                continue
+
+            if any(
+                str(value).startswith("SSH_ERROR")
+                for value in gps_results.values()
+            ):
+                print("OFFLINE - SSH error")
+
+                overall_state = combine_health_states(
+                    "FAULT",
+                    "FAULT",
+                    online=False,
+                )
+
+                combined_results.append({
+                    "train_id": train_id,
+                    "ip_address": host,
+                    "gps_state": "UNKNOWN",
+                    "gps_diagnosis": "SSH connection failed",
+                    "wan_state": "UNKNOWN",
+                    "wan_results": [],
+                    "report_wans": [
+                        int(wan)
+                        for wan in train_profile["active_wans"]
+                    ],
+                    "overall_state": overall_state,
+                })
+
+                offline_count += 1
+                continue
+
+            satellites = parse_satellites(
+                gps_results.get("nmea", "")
+            )
+
+            gps_diagnosis, gps_next_steps = (
+                get_gps_recommendation(
+                    gps_results,
+                    satellites,
+                )
+            )
+
+            gps_state = classify_gps_health(
+                gps_diagnosis
+            )
+
+            # -------------------------
+            # WAN diagnostics
+            # -------------------------
+
+            wan_raw_results = collect_wan_diagnostics(
+                host,
+                username,
+                key_file,
+                passphrase,
+                train_profile,
+            )
+
+            if wan_raw_results.get("ls_unified") == "CONNECTION_TIMEOUT":
+                print("WAN connection timed out - retrying once...")
+
+                wan_raw_results = collect_wan_diagnostics(
+                    host,
+                    username,
+                    key_file,
+                    passphrase,
+                    train_profile,
+                )
+
+            if (
+                wan_raw_results.get("ls_unified")
+                == "CONNECTION_TIMEOUT"
+                or str(
+                    wan_raw_results.get(
+                        "ls_unified",
+                        "",
+                    )
+                ).startswith("SSH_ERROR")
+            ):
+                print("OFFLINE - WAN connection failed")
+
+                overall_state = combine_health_states(
+                    gps_state,
+                    "FAULT",
+                    online=False,
+                )
+
+                combined_results.append({
+                    "train_id": train_id,
+                    "ip_address": host,
+                    "gps_state": gps_state,
+                    "gps_diagnosis": gps_diagnosis,
+                    "wan_state": "UNKNOWN",
+                    "wan_results": [],
+                    "report_wans": [
+                        int(wan)
+                        for wan in train_profile["active_wans"]
+                    ],
+                    "overall_state": overall_state,
+                })
+
+                offline_count += 1
+                continue
+
+            wan_results = []
+
+            for wan_slot in train_profile["wan_slots"]:
+                wan_number = int(wan_slot)
+
+                wan_result = get_wan_result(
+                    wan_number,
+                    wan_raw_results,
+                    train_profile,
+                )
+
+                wan_result["wan_number"] = wan_number
+                wan_results.append(wan_result)
+
+            wan_state = classify_wan_health(
+                wan_results
+            )
+
+            overall_state = combine_health_states(
+                gps_state,
+                wan_state,
+            )
+
+            combined_results.append({
+                "train_id": train_id,
+                "ip_address": host,
+                "gps_state": gps_state,
+                "gps_diagnosis": gps_diagnosis,
+                "gps_next_steps": gps_next_steps,
+                "wan_state": wan_state,
+                "wan_results": wan_results,
+                "report_wans": [
+                    int(wan)
+                    for wan in train_profile["active_wans"]
+                ],
+                "overall_state": overall_state,
+            })
+
+            print(
+                f"GPS: {gps_state} - "
+                f"{gps_diagnosis}"
+            )
+
+            for wan_result in wan_results:
+                print(
+                    f"WAN{wan_result['wan_number']}: "
+                    f"{wan_result['status']} - "
+                    f"{wan_result['diagnosis']}"
+                )
+
+            print(
+                f"OVERALL HEALTH: {overall_state}"
+            )
+
+            if overall_state == "HEALTHY":
+                healthy_count += 1
+
+            elif overall_state == "DEGRADED":
+                degraded_count += 1
+
+            elif overall_state == "FAULT":
+                fault_count += 1
+
+        except Exception as e:
+            print(f"ERROR: {e}")
+            error_count += 1
+
+        print("=" * 70)
+
+    reports_dir = Path("reports")
+    reports_dir.mkdir(exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    inventory_name = Path(inventory_file).stem
+
+    combined_html_file = (
+        reports_dir
+        / f"{timestamp}_{inventory_name}_combined_health.html"
+    )
+
+    generate_combined_html_report(
+        combined_results,
+        combined_html_file,
+    )
+
+    print(
+        f"Combined HTML report saved to: "
+        f"{combined_html_file}"
+    )
+
+    return combined_results
+
 def diagnose_fleet():
 
     username = SSH_USERNAME

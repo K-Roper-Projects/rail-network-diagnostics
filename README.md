@@ -14,8 +14,11 @@ The project was created from real-world engineering requirements: reducing repet
 * Dynamic GPS hardware discovery
 * Automated GPS and WAN fault classification
 * Fleet-aware hardware and network topology validation
+* Combined GPS and WAN fleet health assessment
+* Fleet health classification using HEALTHY, DEGRADED, FAULT and OFFLINE states
 * Engineering action recommendations based on detected fault signatures
 * Fleet-wide CSV and HTML health reporting
+* Modular diagnostic architecture separating configuration, collection, classification and reporting
 
 ---
 
@@ -77,14 +80,16 @@ The platform can:
 * Read fleet inventory definitions
 * Connect remotely to multiple onboard systems
 * Automatically apply fleet-specific hardware profiles
-* Run GPS and WAN diagnostics
+* Run standalone GPS and WAN diagnostics
+* Run combined GPS and WAN fleet health scans
 * Identify offline or unreachable units
-* Classify detected faults
+* Classify GPS and WAN faults
+* Calculate an overall fleet health state
 * Record supporting diagnostic evidence
 * Generate fleet-wide CSV reports
-* Generate HTML fleet health reports
+* Generate standalone and combined HTML fleet health reports
 
-This provides engineers with a consistent view of fleet health while retaining the evidence required for deeper investigation.
+This provides engineers with both a high-level view of fleet health and the underlying diagnostic evidence required for deeper investigation. Individual subsystem diagnoses remain available even when an overall combined health state is assigned.
 
 ---
 
@@ -94,15 +99,12 @@ This provides engineers with a consistent view of fleet health while retaining t
 
 One of the early assumptions in the project was that GPS receivers could be accessed using fixed Linux serial-device paths.
 
-Testing across 4600CCU platforms showed that USB serial devices are **dynamically assigned during system boot**, meaning a GPS receiver could move between device paths after a reboot.
+Testing across supported fleets showed that USB serial devices are **dynamically assigned during system boot**, meaning a GPS receiver could move between device paths after a reboot.
 
 For example:
 
 ```text
-/dev/ttyUSB3
-/dev/ttyUSB6
-/dev/ttyUSB7
-/dev/ttyUSB9
+/dev/ttyUSB<n>
 ```
 
 Hardcoding a serial device therefore created unreliable diagnostics.
@@ -144,7 +146,7 @@ The supported rail fleets do not share identical hardware or network configurati
 
 Differences include:
 
-* CCU hardware generation
+* Hardware generation
 * GPS device behaviour
 * modem types
 * number of active WAN interfaces
@@ -152,21 +154,44 @@ Differences include:
 
 A single fixed diagnostic profile would therefore generate false failures.
 
-Fleet-aware profiles were introduced so that the diagnostic engine understands which hardware and interfaces are expected for each platform.
+Fleet-aware profiles were introduced so that the diagnostic engine understands which hardware and interfaces are expected for each fleet.
 
 This allows one diagnostic platform to assess multiple fleets while accounting for legitimate differences in system architecture.
+
+The fleet configuration also separates WAN interfaces that are available for diagnostic collection from those expected to be operational.
+
+For example, a supported fleet may expose multiple WAN runtime slots, allowing all available interfaces to be inspected during diagnostics. Fleet configuration defines which WAN interfaces are expected to be active, while deliberately unused interfaces are excluded from normal health assessment and operator-facing reporting.
+
+This allows the platform to retain diagnostic visibility of the underlying hardware without incorrectly treating deliberately unused WAN interfaces as faults.
+
+### Combined Fleet Health Assessment
+
+GPS and WAN diagnostics were initially developed as independent diagnostic workflows. While useful individually, this required engineers to interpret multiple results when determining the overall health of a train.
+
+Phase 7 introduced a combined fleet health model that evaluates GPS and WAN diagnostics together and assigns one overall operational state:
+
+* **HEALTHY** — GPS and all expected active WAN connections are operational.
+* **DEGRADED** — the system remains operational, but a service warning or partial WAN failure has been detected.
+* **FAULT** — a GPS fault or loss of all expected active WAN connectivity has been detected.
+* **OFFLINE** — the onboard system could not be reached remotely.
+
+WAN interfaces intentionally disabled by fleet design are excluded from the active-WAN health calculation.
+
+The combined scan retains the individual GPS and WAN diagnoses rather than replacing them with a single score. This means the overall state provides a quick fleet-level indication while the underlying evidence remains available for engineering investigation.
+
+Combined results are presented in an HTML fleet health report containing the overall train state, GPS assessment and individual WAN interface results.
 
 ---
 
 ## Example Diagnostic Output
 
 ```text
-GPS Diagnostic Report - TRAIN001
+GPS Diagnostic Report - EXAMPLE
 
 SERVICE CHECKS
 ----------------------------------------
 GPS Device Present   : True
-GPS Device Used      : /dev/ttyUSB3
+GPS Device Used      : /dev/ttyUSB<n>
 GPS Process Running  : True
 MQTT Running         : True
 Broadcast Running    : False
@@ -175,8 +200,8 @@ VLAN105 Present      : True
 GPS STATUS
 ----------------------------------------
 GPRMC Status         : A
-UTC Time             : 061522.000
-Satellites Visible   : 20
+UTC Time             : <example UTC>
+Satellites Visible   : <example count>
 
 ASSESSMENT
 ----------------------------------------
@@ -231,25 +256,25 @@ The fault library continues to evolve as diagnostic behaviour is compared agains
 
 ---
 
-## Supported Platforms
+## Supported Fleets
 
 ### Fleet & Hardware Profiles
 
-| Fleet       | Hardware Platform | GPS Device Method           |
-| ----------- | ----------------- | --------------------------- |
-| GWR 165/166 | R3200CCU          | Fixed device (`/dev/ttyS1`) |
-| GWR 800/802 | 4600CCU           | Automatic device discovery  |
-| XC 170      | 4600CCU           | Automatic device discovery  |
-| XC 220/221  | 4600CCU           | Automatic device discovery  |
+| Fleet | Hardware Profile | GPS Device Method |
+| -------- | ---------------- | ----------------- |
+| Fleet A | Hardware Profile A | Fixed device mapping |
+| Fleet B | Hardware Profile B | Automatic device discovery |
+| Fleet C | Hardware Profile C | Automatic device discovery |
+| Fleet D | Hardware Profile D | Automatic device discovery |
 
 ### WAN Topologies
 
-| Fleet       | Expected Active WANs |
-| ----------- | -------------------- |
-| GWR 165/166 | WAN1, WAN3           |
-| GWR 800/802 | WAN1, WAN2           |
-| XC 170      | WAN1, WAN2, WAN3     |
-| XC 220/221  | WAN1, WAN2, WAN3     |
+| Fleet | Expected Active WANs |
+| ----- | -------------------- |
+| Fleet A | Fleet-defined |
+| Fleet B | Fleet-defined |
+| Fleet C | Fleet-defined |
+| Fleet D | Fleet-defined |
 
 ### Modem Support
 
@@ -277,7 +302,7 @@ Developed remote GPS health checking, service validation and initial fault asses
 
 ### Phase 2 — Multi-Fleet & Dynamic Hardware Support
 
-Extended diagnostics across differing CCU platforms and introduced automatic GPS device discovery after identifying dynamic Linux USB enumeration.
+Extended diagnostics across differing hardware platforms and introduced automatic GPS device discovery after identifying dynamic Linux USB enumeration.
 
 ### Phase 3 — Fleet Automation
 
@@ -295,6 +320,33 @@ Developed evidence-based GPS and WAN fault signatures with automated diagnoses a
 
 Introduced mixed-fleet WAN topology awareness, hardware-specific profiles and HTML fleet health reporting.
 
+### Phase 7 — Modular Architecture & Combined Fleet Health
+
+Refactored the original diagnostic application into a modular architecture while preserving the existing GPS and WAN diagnostic workflows.
+
+Fleet configuration, SSH communication, GPS analysis, WAN analysis and reporting responsibilities were separated into dedicated modules:
+
+* `config/fleet_profiles.py` — fleet-specific hardware and WAN topology definitions
+* `ssh_client.py` — reusable SSH communication
+* `diagnostics/gps.py` — GPS parsing and fault classification
+* `diagnostics/wan.py` — WAN parsing and fault classification
+* `diagnostics/health.py` — combined fleet health classification
+* `reporting/reports.py` — CSV and HTML report generation
+* `gps_diag.py` — application workflow and diagnostic orchestration
+
+A combined GPS and WAN fleet scan was then introduced to assess both subsystems during a single remote diagnostic run.
+
+The combined health engine classifies each train as:
+
+* **HEALTHY**
+* **DEGRADED**
+* **FAULT**
+* **OFFLINE**
+
+The severity model deliberately retains the underlying GPS and individual WAN diagnoses rather than reducing diagnostic evidence to an arbitrary numeric health score.
+
+Phase 7 also introduced a combined HTML fleet health report, providing a fleet-level summary alongside individual GPS and WAN diagnostic results.
+
 ### Current Direction — Diagnostic Platform Evolution
 
 Current development is focused on extending the platform toward historical analytics, scheduled diagnostics, wider network health assessment and increasingly automated fault response.
@@ -304,7 +356,21 @@ Current development is focused on extending the platform toward historical analy
 ## Project Structure
 
 ```text
-rail-network-diagnostics
+rail-network-diagnostics/
+│
+├── config/
+│   ├── __init__.py
+│   └── fleet_profiles.py
+│
+├── diagnostics/
+│   ├── __init__.py
+│   ├── gps.py
+│   ├── wan.py
+│   └── health.py
+│
+├── reporting/
+│   ├── __init__.py
+│   └── reports.py
 │
 ├── docs/
 │   ├── diagrams/
@@ -326,6 +392,7 @@ rail-network-diagnostics
 │   └── faulty_nmea.txt
 │
 ├── gps_diag.py
+├── ssh_client.py
 ├── ssh_test.py
 ├── requirements.txt
 ├── README.md
@@ -336,7 +403,7 @@ rail-network-diagnostics
 
 ## Technologies
 
-* **Python** — diagnostic logic, automation and reporting
+* **Python** — modular diagnostic logic, fault classification, automation and reporting
 * **Paramiko / SSH** — secure remote system interrogation
 * **Linux** — process, device, interface and service diagnostics
 * **TCP/IP & VLANs** — onboard network health assessment

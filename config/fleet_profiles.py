@@ -1,0 +1,35 @@
+FLEET_PROFILES = {
+    "fleet_a": {
+        "gps_device_mode": "fixed",
+        "gps_device": "/dev/ttyS1",
+        "wan_slots": ["01", "02", "03", "04"],
+        "active_wans": ["01", "03"],
+        "vlan": "br0.105",
+        "gprmc_file": "/var/local/gprmc",
+        "broadcast_process": "broadcast_unicast_gps.py",
+    },
+    "fleet_b": {
+        "gps_device_mode": "auto",
+        "wan_slots": ["01", "02", "03"],
+        "active_wans": ["01", "02"],        
+        "vlan": "br0.105",
+        "gprmc_file": "/var/local/gprmc",
+        "broadcast_process": "broadcast_unicast_gps.py",
+    },
+    "fleet_c": {
+        "gps_device_mode": "auto",
+        "wan_slots": ["01", "02", "03"],
+        "active_wans": ["01", "02", "03"],
+        "vlan": "br0.105",
+        "gprmc_file": "/var/local/gprmc",
+        "broadcast_process": "broadcast_unicast_gps.py",
+    },
+    "fleet_d": {
+        "gps_device_mode": "auto",
+        "wan_slots": ["01", "02", "03"],
+        "active_wans": ["01", "02", "03"],
+        "vlan": "br0.105",
+        "gprmc_file": "/var/local/gprmc",
+        "broadcast_process": "broadcast_unicast_gps.py",
+    },
+}
